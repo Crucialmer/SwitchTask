@@ -249,10 +249,11 @@ void Widget::setupLabelFont() {
         labelFont.setPointSizeF(fontSize);
         auto defaultFF = QStringList{cfg.get("label/font_family", Fonts[0]).toString()};
         labelFont.setFamilies(defaultFF << Fonts.mid(1));
-        // font_weight 可选：数字(100~900，400=常规 500=中等 600=半粗 700=粗体) 或 bold/normal；不写=默认常规
-        const auto weightCfg = cfg.get("label/font_weight", "").toString().trimmed().toLower();
+        // font_weight 可选：数字(100~900，400=常规 500=中等 600=半粗 700=粗体) 或 bold/normal；不写=默认粗体(bold)
+        const auto weightCfg = cfg.get("label/font_weight", "bold").toString().trimmed().toLower();
+        int weight = 700; // 默认加粗（bold）
         if (!weightCfg.isEmpty()) {
-            int weight = -1;
+            weight = -1;
             if (weightCfg == "bold" || weightCfg == "b")
                 weight = 700;
             else if (weightCfg == "normal" || weightCfg == "regular" || weightCfg == "n")
@@ -263,11 +264,12 @@ void Widget::setupLabelFont() {
                 if (ok && num >= 100 && num <= 900)
                     weight = num;
             }
-            if (weight > 0)
-                labelFont.setWeight(QFont::Weight(weight));
-            else
+            if (weight <= 0) {
+                weight = 700; // 非法值：回退默认粗体
                 qWarning() << "Invalid label/font_weight (expect 100~900/bold/normal):" << weightCfg;
+            }
         }
+        labelFont.setWeight(QFont::Weight(weight));
         ui->label->setFont(labelFont);
         qDebug() << labelFont.families();
         qDebug() << "Label Actual Font:" << QFontInfo(labelFont).family();
