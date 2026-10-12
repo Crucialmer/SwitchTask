@@ -4,6 +4,7 @@
 ![Github Release Downloads](https://img.shields.io/github/downloads/Crucialmer/SwitchTask/total)
 ![Language](https://img.shields.io/badge/language-C++-239120)
 ![OS](https://img.shields.io/badge/OS-Windows-0078D4)
+![License](https://img.shields.io/github/license/Crucialmer/SwitchTask)
 
 一款 macOS 风格的 Windows 窗口切换器：列表中的**每个窗口独立一项**、按最近使用排序、即选即切。支持 `Windows` 10 / 11（64 位）。
 
@@ -84,3 +85,9 @@ font_weight = bold
 
 > `font_size` 支持小数，如 `10.5`（100% 缩放下恰好为 14px，显示更清晰）。
 > `font_weight` 字重：默认为 `bold`；也可写 `400` 常规 / `500` 中等 / `600` 半粗 / `700` 粗体，或 `normal`。
+
+## 📄 License
+
+本项目采用 [MIT](LICENSE) 许可发布，允许自由使用、修改与分发（保留版权与许可声明即可）。
+
+© 2026 Crucialmer
