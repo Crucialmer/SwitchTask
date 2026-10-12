@@ -1,0 +1,245 @@
+﻿// You may need to build the project (run Qt uic code generator) to get "ui_UpdateDialog.h" resolved
+
+#include "UpdateDialog.h"
+#include <QCommandLineParser>
+#include "ui_UpdateDialog.h"
+#include <QDebug>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QDesktopServices>
+#include "utils/SystemTray.h"
+#include "QtCore/private/qzipreader_p.h"
+
+UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::UpdateDialog) {
+    ui->setupUi(this);
+    setWindowFlag(Qt::WindowStaysOnTopHint);
+    setWindowTitle("SwitchTask Updater[GitHub]");
+    qDebug() << QSslSocket::sslLibraryBuildVersionString() << QSslSocket::supportsSsl();
+
+    manager.setTransferTimeout(10000); // 10s -> Operation canceled
+    ui->progressBar->hide();
+    connect(ui->btn_recheck, &QPushButton::clicked, this, &UpdateDialog::fetchGithubReleaseInfo);
+    connect(ui->btn_update, &QPushButton::clicked, this, [this] {
+        ui->btn_update->setEnabled(false);
+        auto url = relInfo.downloadUrl;
+        archive.fileName = QUrl(url).fileName();
+        download(url, qApp->applicationDirPath() + '/' + archive.fileName);
+    });
+    connect(this, &UpdateDialog::downloadSucceed, this, [this](const QString& filePath) {
+        qDebug() << "Download succeed" << filePath;
+        if (filePath.endsWith(".zip", Qt::CaseInsensitive)) { // 大小写不敏感
+            auto relDir = QDir(qApp->applicationDirPath() + '/' + archive.extractDir);
+            relDir.removeRecursively();
+            if (QZipReader reader(filePath); reader.isReadable() &&
+                                             reader.extractAll(relDir.absolutePath()) &&
+                                             relDir.exists()) {
+                // extractAll 失败 貌似也会返回true (& status() == 0 NoError)？离谱
+                auto entryInfos = relDir.entryInfoList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
+                if (entryInfos.size() == 1 && entryInfos.first().isDir()) { // 有可能还套了一层根目录
+                    relDir.cd(entryInfos.first().fileName());
+                }
+                qDebug() << "release extract dir:" << relDir.absolutePath();
+                const auto batPath = writeBat(relDir.absolutePath());
+                QDesktopServices::openUrl(QUrl::fromLocalFile(batPath));
+                qApp->quit(); //
+            } else {
+                qWarning() << "Extract failed" << reader.status();
+                ui->textBrowser->setMarkdown("## Extract failed❎");
+            }
+        } else {
+            // 其他格式可能需要7z.exe支持
+            qWarning() << "Unsupported file type" << filePath;
+            ui->textBrowser->setMarkdown("## Unsupported file type❎");
+        }
+    });
+}
+
+UpdateDialog::~UpdateDialog() {
+    delete ui;
+    qDebug() << "UpdateDialog destroyed";
+}
+
+void UpdateDialog::fetchGithubReleaseInfo() {
+    ui->textBrowser->setMarkdown("## Fetching...");
+    const QString ApiUrl = QString("https://api.github.com/repos/%1/%2/releases/latest").arg(Owner, Repo);
+    QNetworkRequest request(ApiUrl);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    auto* reply = manager.get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "Failed to fetch update info" << reply->errorString();
+            ui->textBrowser->setMarkdown("## Failed to fetch update info❎\n" + reply->errorString());
+            sysTray.showMessage("Failed to fetch update info", reply->errorString());
+            return;
+        }
+        const auto data = reply->readAll();
+        const QJsonDocument doc = QJsonDocument::fromJson(data);
+        const auto obj = doc.object();
+
+        relInfo.ver = normalizeVersion(obj["tag_name"].toString());
+        relInfo.description = obj["body"].toString();
+        relInfo.publishTime = toLocalTime(obj["published_at"].toString());
+
+        if (const auto assets = obj["assets"].toArray(); !assets.isEmpty()) {
+            relInfo.downloadUrl.clear(); // 先清空，防止上次请求的残留值在“assets 全非 zip”时被误用
+            // 筛选 zip asset，避免取到非压缩包或顺序不确定导致错误下载
+            for (const auto& asset: assets) {
+                const auto name = asset.toObject()["name"].toString();
+                if (name.endsWith(".zip", Qt::CaseInsensitive)) {
+                    relInfo.downloadUrl = asset.toObject()["browser_download_url"].toString();
+                    break;
+                }
+            }
+            if (relInfo.downloadUrl.isEmpty()) // fallback 到第一个 asset（保持原行为）
+                relInfo.downloadUrl = assets.first().toObject()["browser_download_url"].toString();
+        }
+
+        qDebug() << "Update info fetched" << relInfo.ver << relInfo.downloadUrl;
+        ui->label_newVer->setText(QString("New Version: v%1 (%2)").arg(relInfo.ver.toString(), relInfo.publishTime));
+        ui->label_ver->setText(QString("Current Version: v%1").arg(version.toString()));
+
+        bool needUpdate = relInfo.ver > version;
+        // 如果要支持网络图片，必须重写`QTextBrowser::loadResource`，默认是作为本地文件处理
+        ui->textBrowser->setMarkdown(needUpdate ? relInfo.description : "# ✅Everything is up-to-date");
+        ui->btn_update->setEnabled(needUpdate);
+    });
+}
+
+void UpdateDialog::download(const QString& url, const QString& savePath) {
+    QNetworkRequest request(url);
+    // 限制只允许 https，避免重定向到 http 或恶意站点
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+    auto* reply = manager.get(request);
+    ui->progressBar->show();
+    ui->progressBar->setValue(0);
+    ui->progressBar->setMaximum(0); // unknown size
+
+    QFile::remove(savePath);
+    downloadStatus.file.setFileName(savePath);
+    if (!downloadStatus.file.open(QIODevice::WriteOnly)) { // 检查打开是否成功（Program Files 不可写场景）
+        qWarning() << "Failed to open file for writing:" << savePath;
+        ui->textBrowser->setMarkdown("## Cannot write to file❎\n" + savePath);
+        ui->btn_update->setEnabled(true);
+        reply->abort();
+        reply->deleteLater();
+        return;
+    }
+    downloadStatus.success = false;
+    downloadStatus.reply = reply;
+
+    connect(reply, &QNetworkReply::readyRead, this, [this, reply] {
+        const auto data = reply->readAll();
+        if (downloadStatus.file.write(data) != data.size()) // 检查写入返回值，磁盘满时及时失败
+            qWarning() << "Write incomplete:" << downloadStatus.file.fileName();
+    });
+
+    connect(reply, &QNetworkReply::downloadProgress, this, [this](qint64 bytesReceived, qint64 bytesTotal) {
+        qDebug() << "Download progress" << bytesReceived << bytesTotal;
+        // 成功判定已移至 finished 回调（以 error() + HTTP 状态码为准），此处仅更新进度条
+        ui->progressBar->setMaximum(bytesTotal > 0 ? bytesTotal : 0);
+        ui->progressBar->setValue(bytesReceived);
+    });
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        downloadStatus.reply = nullptr;
+        downloadStatus.file.close(); // close才刷新缓冲区，写入磁盘，所以必须在解压之前！不然解压概率性失败...(QZip: EndOfDirectory not found)
+        ui->progressBar->hide();
+        ui->btn_update->setEnabled(true);
+        // 成功判定以 finished 时的错误码与 HTTP 状态码为准，而非 downloadProgress 的 bytesReceived == bytesTotal
+        // （Content-Length 缺失时 bytesTotal 恒为 -1，条件永不成立或意外成立均不可靠）
+        const auto httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply->error() != QNetworkReply::NoError || (httpStatus != 0 && httpStatus != 200)) {
+            qWarning() << "Download failed" << reply->errorString() << httpStatus;
+            ui->textBrowser->setMarkdown("## Download failed❎ [" + reply->url().host() + "]\n" + reply->errorString());
+            sysTray.showMessage("Download failed", reply->errorString());
+        } else {
+            ui->textBrowser->setMarkdown("## Download success✅");
+            sysTray.showMessage("Download Status", "Success!");
+            emit downloadSucceed(downloadStatus.file.fileName());
+        }
+    });
+}
+
+QString UpdateDialog::writeBat(const QString& sourceDir, const QString& targetDir) const {
+    const auto appDir = qApp->applicationDirPath();
+    // bat 由 cmd.exe 按系统代码页(ANSI/OEM)解析——为避免中文乱码，bat 内容保持纯 ASCII：
+    // 所有路径改用 %~dp0（=bat 所在目录）在运行时展开，cmd 内部以 Unicode 处理，不受代码页影响
+    const auto relSource = QDir::toNativeSeparators(QDir(appDir).relativeFilePath(sourceDir));
+    auto relTarget = QDir::toNativeSeparators(QDir(appDir).relativeFilePath(targetDir));
+    if (relTarget.isEmpty())
+        relTarget = "."; // targetDir==程序目录时相对路径为空，用 "."（即 "%~dp0."）
+    QString bat;
+    bat += "@timeout /t 1 /NOBREAK\r\n";
+    bat += "@cd /d \"%~dp0\"\r\n"; //切换到bat目录，否则为qt的exe目录
+    bat += "@echo ##Copying files, please wait......\r\n";
+    bat += QString("xcopy \"%~dp0%1\" \"%~dp0%2\" /E /H /Y\r\n").arg(relSource, relTarget);
+    bat += "@echo -------------------------------------------------------\r\n";
+    bat += "@echo ##Update SUCCESSFUL(Maybe)\r\n";
+    bat += "@echo -------------------------------------------------------\r\n";
+    // bat += "@pause\r\n";
+    bat += QString("@del \"%~dp0%1\"\r\n").arg(archive.fileName);
+    bat += QString("@rd /S /Q \"%~dp0%1\"\r\n").arg(archive.extractDir);
+    bat += QString("@start \"\" \"%~dp0%1\" --verify-update \"%2->%3\"\r\n").arg(QFile(qApp->applicationFilePath()).fileName(),
+                                                                                 version.toString(), relInfo.ver.toString());
+    bat += "@del \"%~f0\"";
+    QFile file(appDir + "/copy.bat");
+    if (file.open(QFile::WriteOnly)) {
+        const QByteArray batData = bat.toLocal8Bit(); // 系统代码页（中文=GBK），cmd 按此解析
+        if (file.write(batData) != batData.size())
+            qWarning() << "Failed to write bat file:" << file.fileName();
+    }
+    return file.fileName();
+}
+
+QVersionNumber UpdateDialog::normalizeVersion(const QString& ver) {
+    auto v = ver;
+    if (v.startsWith('v')) v.removeFirst();
+    while (v.count('.') > 2 && v.endsWith(".0")) // 移除多余的0，保留3位
+        v.chop(2);
+    return QVersionNumber::fromString(v);
+}
+
+QString UpdateDialog::toLocalTime(const QString& isoTime) {
+    const auto dateTime = QDateTime::fromString(isoTime, Qt::ISODate);
+    return dateTime.toLocalTime().toString("yyyy.MM.dd HH:mm");
+}
+
+void UpdateDialog::verifyUpdate(const QCoreApplication& app) {
+    QCommandLineParser parser;
+    // 用于验证更新成功与否，应由更新程序(.bat)调用，用法：`--verify-update 1.0->2.0`
+    QCommandLineOption versionUpdate("verify-update", "verify update, e.g. `1.0->2.0`", "versionChange");
+    // the `valueName` needs to be set if the option expects a value.
+    parser.addOption(versionUpdate);
+    parser.process(app);
+    if (parser.isSet(versionUpdate)) {
+        // Qt 好像不支持`-v 1.0.1 1.0.2`这样多values，只能`-v 1.0.1 -v 1.0.2`
+        auto versions = parser.value(versionUpdate).split("->");
+        if (versions.size() == 2) {
+            auto vFrom = QVersionNumber::fromString(versions.first());
+            auto vTo = QVersionNumber::fromString(versions.last());
+            qDebug() << "vFrom" << vFrom << "vTo" << vTo << "compare" << QVersionNumber::compare(vFrom, vTo);
+
+            auto vCur = QVersionNumber::fromString(QCoreApplication::applicationVersion());
+            if (vCur.normalized() == vTo.normalized()) {
+                qDebug() << "Update success";
+                sysTray.showMessage("Verify Update", "Update Success to v" + vTo.toString());
+            } else if (vCur.normalized() == vFrom.normalized()) {
+                qWarning() << "Update failed, version not change" << vFrom << vTo << vCur;
+                sysTray.showMessage("Verify Update", "Update failed, version not change", QSystemTrayIcon::Critical);
+            } else {
+                qWarning() << "Update may failed, version changed but not to target" << vFrom << vTo << vCur;
+                sysTray.showMessage("Verify Update", "Update may failed, version changed but not to target", QSystemTrayIcon::Warning);
+            }
+        } else
+            qWarning() << "Invalid version change" << parser.value(versionUpdate);
+    }
+}
+
+void UpdateDialog::showEvent(QShowEvent*) {
+    if (!downloadStatus.reply)
+        fetchGithubReleaseInfo();
+}
