@@ -88,6 +88,6 @@ font_weight = bold
 
 ## 📄 License
 
-本项目采用 [MIT](LICENSE) 许可发布，允许自由使用、修改与分发（保留版权与许可声明即可）。
+本项目采用 [GPL-3.0](LICENSE) 许可发布：可自由使用、修改与分发，衍生作品须同样以 GPL-3.0 开源。
 
 © 2026 Crucialmer
