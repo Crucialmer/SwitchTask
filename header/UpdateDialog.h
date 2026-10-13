@@ -27,7 +27,7 @@ private:
     void applyTheme(); // 更新说明区随深浅色模式着色
     void fetchGithubReleaseInfo();
     void download(const QString& url, const QString& savePath);
-    QString writeBat(const QString& sourceDir, const QString& targetDir = qApp->applicationDirPath()) const;
+    QString writeBat(const QString& sourceDir, const QString& targetDir) const;
     static QVersionNumber normalizeVersion(const QString& ver);
     static QString toLocalTime(const QString& isoTime);
 
@@ -52,7 +52,6 @@ private:
     } relInfo;
 
     struct {
-        bool success = false;
         QNetworkReply* reply = nullptr;
         QFile file;
     } downloadStatus;

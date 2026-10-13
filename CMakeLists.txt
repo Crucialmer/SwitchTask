@@ -1,5 +1,5 @@
 ﻿cmake_minimum_required(VERSION 3.21)
-project(SwitchTask VERSION 3.1.0)
+project(SwitchTask VERSION 3.2.0)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,7 +31,8 @@ configure_file(
 
 include_directories(header)
 
-find_package(Qt6 COMPONENTS
+# 最低 6.8：QStyleHints::setColorScheme()/colorSchemeChanged 方可用（Theme.h 依赖；缺失时给出明确的配置期报错）
+find_package(Qt6 6.8 COMPONENTS
         Core
         Gui
         Widgets

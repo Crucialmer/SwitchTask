@@ -97,7 +97,9 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
         applyTheme(); // 系统深浅色切换时即时刷新（弹窗保持可见时也立即生效）
     });
     connect(&cfg, &ConfigManager::configEdited, this, [this] {
-        Theme::applyConfiguredScheme(); // 先同步 Qt 的强制模式，再应用配色
+        // 强制模式同步（applyConfiguredScheme）由 SystemTray 的 configEdited 处理器统一负责
+        // （其连接先于本处注册、同一事件内先行执行）；此处只应用配色——applyTheme 读取的
+        // isDark() 直接取配置，不依赖 Qt 侧调色板，因此与调用顺序无关
         applyTheme();
     });
 
@@ -296,6 +298,9 @@ void Widget::applyTheme() {
     ui->label->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::labelColor().name()));
     if (iconDelegate)
         iconDelegate->setColors(Theme::selectionFill(), Theme::hoverFill(), Theme::ringColor());
+    // 面板配色缓存到成员：paintEvent 高频重绘（悬停/选中放大动效每帧 update）不再逐帧重读 QSettings
+    panelFillColor = Theme::panelFill();
+    panelStrokeColor = Theme::panelStroke();
     if (lw)
         lw->viewport()->update();
     update(); // 面板底色/描边重绘
@@ -320,10 +325,10 @@ void Widget::paintEvent(QPaintEvent*) { //不绘制会导致鼠标穿透背景
     QPainterPath panel;
     panel.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8);
     painter.setPen(Qt::NoPen);
-    painter.setBrush(Theme::panelFill());
+    painter.setBrush(panelFillColor); // 主题变更由 applyTheme() 同步，绘制路径零 QSettings 读取
     painter.drawPath(panel);
     painter.setBrush(Qt::NoBrush);
-    painter.setPen(QPen(Theme::panelStroke(), 1)); // 细描边：在明/暗壁纸上勾勒面板轮廓（随主题切换）
+    painter.setPen(QPen(panelStrokeColor, 1)); // 细描边：在明/暗壁纸上勾勒面板轮廓（随主题切换）
     painter.drawPath(panel);
 }
 
@@ -334,8 +339,9 @@ void Widget::notifyForegroundChanged(HWND hwnd, ForegroundChangeSource source) {
     if (hwnd == this->hWnd()) return;
     // （其实监听前台变化只是为了排序，不需要太精确，可以放松限制）
     // 通过`EVENT_SYSTEM_FOREGROUND`触发时忽略`IsWindowVisible`，因为窗口在创建瞬间可能不可见
-    if (!Util::isWindowAcceptable(hwnd, source == WinEvent)) return;
-    auto path = Util::getWindowProcessPath(hwnd); // TODO 比较耗时，最好仅在单次show期间缓存，同时避免hwnd复用造成缓存错误
+    QString path;
+    // 单趟复用：过滤通过时已解析出进程路径（pathOut 仅在通过分支写入），不再二次查询（每次前台变化都走这里）
+    if (!Util::isWindowAcceptable(hwnd, source == WinEvent, &path)) return;
     // 注：winActiveOrder 的失效清理在 prepareWindowList（每次弹窗时执行，防止无限增长与句柄复用错乱）
     winActiveOrder[path].insert(hwnd, QDateTime::currentDateTime());
 
@@ -350,14 +356,17 @@ QList<WindowInfo> Widget::prepareWindowList() {
     QHash<HWND, QString> pathMap; // 枚举时顺带解析进程路径（单趟完成，避免逐窗口重复查询）
     const auto list = Util::listValidWindows(&pathMap);
     QSet<HWND> validHwnds(list.begin(), list.end());
-    // 清理 winActiveOrder 中已失效的 HWND，防止无限增长与句柄复用导致的排序错乱
+    // 清理 winActiveOrder 中已失效的 HWND（防无限增长与句柄复用错乱），顺带构建 winOrder（同一趟完成）
+    QHash<HWND, QDateTime> winOrder;
     for (auto it = winActiveOrder.begin(); it != winActiveOrder.end();) {
         auto& hwndMap = it.value();
         for (auto hIt = hwndMap.begin(); hIt != hwndMap.end();) {
             if (!validHwnds.contains(hIt.key()))
                 hIt = hwndMap.erase(hIt);
-            else
+            else {
+                winOrder.insert(hIt.key(), hIt.value());
                 ++hIt;
+            }
         }
         if (hwndMap.isEmpty())
             it = winActiveOrder.erase(it);
@@ -374,10 +383,6 @@ QList<WindowInfo> Widget::prepareWindowList() {
     }
 
     // 按窗口自身最近活跃时间排序（最新在前；无记录者排后，保持枚举序）
-    QHash<HWND, QDateTime> winOrder;
-    for (auto it = winActiveOrder.begin(); it != winActiveOrder.end(); ++it)
-        for (auto hIt = it.value().begin(); hIt != it.value().end(); ++hIt)
-            winOrder.insert(hIt.key(), hIt.value());
     // stable_sort：无记录者互相等价，必须保持枚举序（与上述“无记录者排后，保持枚举序”的注释承诺一致）
     std::stable_sort(winList.begin(), winList.end(), [&winOrder](const WindowInfo& a, const WindowInfo& b) {
         auto timeA = winOrder.value(a.hwnd);

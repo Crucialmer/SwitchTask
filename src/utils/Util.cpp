@@ -192,6 +192,12 @@ namespace Util {
     }
 
     QString getFileDescription(const QString& path) {
+        // 记忆化：Shell 属性查询较慢（悬停经过无标题窗口项、启动回退扫描都会反复查询同一路径），
+        // 同一路径在本进程生命周期内结果不变（与 AppUtil 的 app2Path/desc2Path 缓存同风格）
+        static QHash<QString, QString> descCache;
+        if (const auto it = descCache.constFind(path); it != descCache.constEnd())
+            return it.value();
+
         QString desc = QFileInfo(path).completeBaseName(); // fallback to base name
 
         // 使用 CComPtr 自动释放 IShellItem2 接口
@@ -209,6 +215,7 @@ namespace Util {
             qWarning() << "SHCreateItemFromParsingName() failed";
         }
 
+        descCache.insert(path, desc);
         return desc;
     }
 

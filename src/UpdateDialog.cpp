@@ -5,6 +5,7 @@
 #include "ui_UpdateDialog.h"
 #include <QDebug>
 #include <QNetworkReply>
+#include <QSslSocket> // 显式包含：用于启动时打印 SSL 库版本/可用性（勿依赖传递包含）
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -47,7 +48,7 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
                     relDir.cd(entryInfos.first().fileName());
                 }
                 qDebug() << "release extract dir:" << relDir.absolutePath();
-                const auto batPath = writeBat(relDir.absolutePath());
+                const auto batPath = writeBat(relDir.absolutePath(), qApp->applicationDirPath());
                 QDesktopServices::openUrl(QUrl::fromLocalFile(batPath));
                 qApp->quit(); //
             } else {
@@ -59,6 +60,11 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
             qWarning() << "Unsupported file type" << filePath;
             ui->textBrowser->setMarkdown("## Unsupported file type❎");
         }
+    });
+
+    // 系统深浅色切换时即时刷新说明区配色（showEvent 的调用保留为兜底；本对话框实例常驻复用）
+    connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
+        applyTheme();
     });
 }
 
@@ -139,7 +145,6 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
         reply->deleteLater();
         return;
     }
-    downloadStatus.success = false;
     downloadStatus.reply = reply;
 
     connect(reply, &QNetworkReply::readyRead, this, [this, reply] {

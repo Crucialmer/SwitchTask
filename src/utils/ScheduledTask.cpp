@@ -43,6 +43,10 @@ QPair<QString, QString> ScheduledTask::queryAuthorUserId() {
 QString ScheduledTask::createTaskXml(const QString& exePath, const QString& description, bool asAdmin, int priority) {
     const QString isoTime = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
     const auto [author, userId] = queryAuthorUserId();
+    if (author.isEmpty() || userId.isEmpty()) { // 异常路径早失败：避免把 <Author>/<UserId> 为空的 XML 交给 schtasks 后只剩模糊报错
+        qWarning() << "queryAuthorUserId failed, abort task xml";
+        return {};
+    }
     // XML 转义：author/exePath 可能包含 & < > 等字符
     auto xmlEscape = [](const QString& s) -> QString {
         QString escaped = s;
@@ -102,6 +106,10 @@ QString ScheduledTask::createTaskXml(const QString& exePath, const QString& desc
 
 bool ScheduledTask::createTask(const QString& taskName) {
     const auto xml = createTaskXml(qApp->applicationFilePath(), "SwitchTask startup as Admin");
+    if (xml.isEmpty()) { // 前置信息获取失败（见 createTaskXml 内校验）：提前返回并留明确日志
+        qWarning() << "createTask: empty task xml, abort";
+        return false;
+    }
     // 用 QTemporaryFile 避免 Program Files 目录不可写 + 文件名冲突
     QTemporaryFile file(QDir::tempPath() + "/SwitchTask_schtasks_XXXXXX.xml");
     file.setAutoRemove(false); // schtasks 需要读取，先手动管理生命周期
@@ -191,7 +199,7 @@ bool ScheduledTask::deleteTask(const QString& taskName) {
     }
     bool isOk = (process.exitStatus() == QProcess::NormalExit && process.exitCode() == 0);
     if (!isOk) {
-        qWarning() << "Failed to create schtasks:" << QString::fromLocal8Bit(process.readAllStandardError())
+        qWarning() << "Failed to delete schtasks:" << QString::fromLocal8Bit(process.readAllStandardError())
                 << process.exitStatus() << process.exitCode();
     }
     return isOk;

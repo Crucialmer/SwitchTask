@@ -24,10 +24,6 @@ public:
         settings.sync(); // 立即刷盘，避免崩溃丢失最近修改（对自启动等关键设置尤其重要）
     }
 
-    void remove(QAnyStringView key) {
-        settings.remove(key);
-    }
-
     /// Writes any unsaved changes to permanent storage, and reloads any settings that have been changed in the meantime by another application.
     void sync() {
         // This function is called automatically from QSettings's destructor and by the event loop at regular intervals,
@@ -45,8 +41,10 @@ public:
         QFile file(settings.fileName());
         if (!file.exists()) { // ensure exists
             qDebug() << "#Creating config file" << settings.fileName();
-            file.open(QIODevice::WriteOnly);
-            file.close();
+            if (file.open(QIODevice::WriteOnly))
+                file.close();
+            else // 打开失败仅补诊断日志；行为与成功路径一致（仍交由编辑器打开该路径）
+                qWarning() << "Failed to create config file:" << settings.fileName();
         }
 
         qDebug() << "#Editing config file" << settings.fileName();

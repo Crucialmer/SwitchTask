@@ -127,9 +127,10 @@ private:
             // 注册表值可能带引号，统一去除后比较；同时统一分隔符与大小写
             QString stored = path.toString();
             stored.remove('\"');
-            if (stored.compare(appPath, Qt::CaseInsensitive) != 0)
+            const bool matched = stored.compare(appPath, Qt::CaseInsensitive) == 0; // 只比较一次
+            if (!matched)
                 qWarning() << "REG: AutoRun path mismatch:" << stored << appPath;
-            return stored.compare(appPath, Qt::CaseInsensitive) == 0;
+            return matched;
         }
         return false;
     }

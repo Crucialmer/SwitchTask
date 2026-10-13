@@ -122,6 +122,15 @@ private:
         menu->addAction(act_quit);
         this->setContextMenu(menu);
 
+        // 毛玻璃在【每次弹出时】应用到当时的 HWND：QMenu::popup 会先按目标屏幕创建窗口，
+        // 若构造期提前 winId()，原生窗口会被钉在启动屏幕的 DPI 上（多屏混合缩放场景）；重放幂等
+        connect(menu, &QMenu::aboutToShow, menu, [this] {
+            setWindowBlur(reinterpret_cast<HWND>(menu->winId()));
+        });
+        connect(menu_monitor, &QMenu::aboutToShow, menu_monitor, [this] {
+            setWindowBlur(reinterpret_cast<HWND>(menu_monitor->winId()));
+        });
+
         // 主题刷新：系统深浅色切换 / 配置修改后即时重新着色
         applyMenuTheme();
         connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
@@ -139,12 +148,11 @@ private:
         applyMenuThemeTo(menu_monitor);
     }
 
-    /// 单个菜单窗体：着色 + 毛玻璃透底（winId() 处创建原生窗口；如需关闭毛玻璃仅删本行）
+    /// 单个菜单窗体：应用深浅色样式表（毛玻璃在每次弹出时应用到当时的 HWND，见 setMenu()）
     static void applyMenuThemeTo(QMenu* m) {
         if (!m)
             return;
         m->setStyleSheet(Theme::menuStyleSheet());
-        setWindowBlur(reinterpret_cast<HWND>(m->winId()));
     }
 
 private:

@@ -6,6 +6,7 @@
 #include <QListWidget>
 #include <QDebug>
 #include <QDateTime>
+#include <QColor>
 
 struct WindowInfo {
     QString title;
@@ -98,6 +99,10 @@ private:
     /// exePath -> (HWND, time)
     QHash<QString, QHash<HWND, QDateTime>> winActiveOrder;
     QList<HWND> groupWindowOrder; // for Alt+` 同组窗口切换
+
+    // --- 面板配色缓存（applyTheme 更新；paintEvent 每帧直接使用，避免逐帧重读 QSettings）---
+    QColor panelFillColor;
+    QColor panelStrokeColor;
 
     // --- 状态：替代原函数内 static（跨调用存活、存在悬垂/污染风险）---
     // rotateTaskbarWindowInGroup 状态
