@@ -10,6 +10,7 @@
 #include <QJsonArray>
 #include <QDesktopServices>
 #include "utils/SystemTray.h"
+#include "utils/Theme.h"
 #include "QtCore/private/qzipreader_p.h"
 
 UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::UpdateDialog) {
@@ -20,6 +21,7 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
 
     manager.setTransferTimeout(10000); // 10s -> Operation canceled
     ui->progressBar->hide();
+    applyTheme(); // 更新说明区配色跟随深浅色模式
     connect(ui->btn_recheck, &QPushButton::clicked, this, &UpdateDialog::fetchGithubReleaseInfo);
     connect(ui->btn_update, &QPushButton::clicked, this, [this] {
         auto url = relInfo.downloadUrl;
@@ -250,6 +252,14 @@ void UpdateDialog::verifyUpdate(const QCoreApplication& app) {
 }
 
 void UpdateDialog::showEvent(QShowEvent*) {
+    applyTheme(); // 同一实例会被复用：每次显示时同步当前主题
     if (!downloadStatus.reply)
         fetchGithubReleaseInfo();
+}
+
+/// 更新说明区随深浅色模式着色（QSS 需设实底，圆角才生效）
+void UpdateDialog::applyTheme() {
+    ui->textBrowser->setStyleSheet(QStringLiteral(
+        "QTextBrowser { font: 10pt \"微软雅黑\"; padding: 5px; border-radius: 5px; background-color: %1; }")
+        .arg(Theme::isDark() ? QStringLiteral("#2D2D2D") : QStringLiteral("#F6F6F6")));
 }

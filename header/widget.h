@@ -82,6 +82,8 @@ private:
     void cycleSelection(bool forward);
     void showLabelForItem(QListWidgetItem* item);
     void setupLabelFont();
+    /// 应用当前深浅色主题：底部标题颜色、选中/悬停/描边色、面板与列表重绘
+    void applyTheme();
     void sortGroupWindows(QList<HWND>& windows, const QString& exePath);
     QList<HWND> buildGroupWindowOrder(const QString& exePath);
     static HWND rotateWindowInGroup(const QList<HWND>& windows, HWND current, bool forward = true);

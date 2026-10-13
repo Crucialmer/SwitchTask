@@ -10,6 +10,8 @@
 #include "Startup.h"
 #include "ConfigManager.h"
 #include "UpdateDialog.h"
+#include "Theme.h"
+#include "setWindowBlur.h"
 
 #define sysTray SystemTray::instance()
 
@@ -34,19 +36,19 @@ private:
     }
 
     void setMenu(QWidget* parent = nullptr) {
-        auto* menu = new QMenu(parent);
-        menu->setStyleSheet("QMenu{"
-            "background-color:rgb(45,45,45);"
-            "color:rgb(220,220,220);"
-            "border:1px solid black;"
-            "}"
-            "QMenu:selected{ background-color:rgb(60,60,60); }");
+        menu = new QMenu(parent);
+        // macOS 风格托盘菜单：圆角 + 毛玻璃（与切换器面板同一设计语言）。
+        // 圆角需无边框 + 透明窗口承载 QSS 绘制；具体样式由 applyMenuTheme() 随深浅色模式刷新
+        menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
+        menu->setAttribute(Qt::WA_TranslucentBackground);
 
         auto* act_update = new QAction("Check for Updates", menu);
         auto* act_settings = new QAction("Settings", menu);
         auto* act_startup = new QAction("Start with Windows", menu);
-        auto* menu_monitor = new QMenu("Display Monitor", menu);
-        auto* act_quit = new QAction("Quit >", menu);
+        menu_monitor = new QMenu("Display Monitor", menu);
+        menu_monitor->setWindowFlags(menu_monitor->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
+        menu_monitor->setAttribute(Qt::WA_TranslucentBackground);
+        auto* act_quit = new QAction("Quit", menu);
 
         connect(act_update, &QAction::triggered, this, [] {
             // !对于UI窗体，不要用static变量(`static UpdateDialog dlg;`)，要么局部变量，要么指针
@@ -72,7 +74,7 @@ private:
             else
                 this->showMessage("Action Failed", "Failed to change Startup mode", Warning);
         });
-        // aboutToShow 时查询，反映真实状态（isOn 带 5s 缓存 + 启动时预热，菜单弹出不再等 schtasks 子进程）
+        // aboutToShow 时查询，反映真实状态（isOn 带 60s 缓存 + 启动时预热，菜单弹出不再等 schtasks 子进程）
         connect(menu, &QMenu::aboutToShow, act_startup, [act_startup] {
             act_startup->setChecked(Startup::isOn());
 
@@ -116,9 +118,38 @@ private:
         menu->addAction(act_settings);
         menu->addAction(act_startup);
         menu->addMenu(menu_monitor);
+        menu->addSeparator(); // 结构分隔：功能性操作与退出分开
         menu->addAction(act_quit);
         this->setContextMenu(menu);
+
+        // 主题刷新：系统深浅色切换 / 配置修改后即时重新着色
+        applyMenuTheme();
+        connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
+            applyMenuTheme();
+        });
+        connect(&cfg, &ConfigManager::configEdited, this, [this] {
+            Theme::applyConfiguredScheme();
+            applyMenuTheme();
+        });
     }
+
+    /// 应用/刷新托盘菜单的深浅色样式（主菜单 + Display Monitor 子菜单两个窗体）
+    void applyMenuTheme() {
+        applyMenuThemeTo(menu);
+        applyMenuThemeTo(menu_monitor);
+    }
+
+    /// 单个菜单窗体：着色 + 毛玻璃透底（winId() 处创建原生窗口；如需关闭毛玻璃仅删本行）
+    static void applyMenuThemeTo(QMenu* m) {
+        if (!m)
+            return;
+        m->setStyleSheet(Theme::menuStyleSheet());
+        setWindowBlur(reinterpret_cast<HWND>(m->winId()));
+    }
+
+private:
+    QMenu* menu = nullptr; // 托盘菜单（圆角 + 毛玻璃，随主题刷新）
+    QMenu* menu_monitor = nullptr; // Display Monitor 子菜单
 };
 
 #endif //WIN_SWITCHER_SYSTEMTRAY_H

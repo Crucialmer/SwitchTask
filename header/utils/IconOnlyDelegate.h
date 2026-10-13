@@ -23,6 +23,13 @@ public:
         : QStyledItemDelegate(parent), selectedColor(selectedColor), hoverColor(hoverColor),
           ringColor(ringColor) {}
 
+    /// 主题切换时更新三色（选中底/悬停底/描边）
+    void setColors(const QColor& selected, const QColor& hover, const QColor& ring) {
+        selectedColor = selected;
+        hoverColor = hover;
+        ringColor = ring;
+    }
+
     /// 动画步进（调用方随后触发 viewport 重绘）
     void setSelectionGrow(qreal grow) { selectionGrow = grow; }
 

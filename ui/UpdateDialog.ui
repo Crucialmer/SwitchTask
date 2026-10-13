@@ -62,13 +62,7 @@
    <item>
     <widget class="QTextBrowser" name="textBrowser">
      <property name="styleSheet">
-      <string notr="true">QTextBrowser {
-                            font: 10pt &quot;微软雅黑&quot;;
-                            padding: 5px;
-                            border-radius: 5px;
-                            background-color: rgb(45, 45, 45); /*must, or radius fail*/
-                            }
-                        </string>
+      <string notr="true"/>
      </property>
      <property name="html">
       <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;

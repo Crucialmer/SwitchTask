@@ -13,6 +13,7 @@
 #include "utils/ComInitializer.h"
 #include "utils/SingleApp.h"
 #include "utils/SystemTray.h"
+#include "utils/Theme.h"
 
 int main(int argc, char* argv[]) {
     QApplication a(argc, argv);
@@ -35,8 +36,8 @@ int main(int argc, char* argv[]) {
     sysTray.show(); // show之后才能使用系统通知
     UpdateDialog::verifyUpdate(a); // 验证更新
 
-    // 默认情况下，会根据系统主题自动切换; 但是一旦自定义qss，自动切换就会失效; 只好固定为Dark/Light
-    QApplication::styleHints()->setColorScheme(Qt::ColorScheme::Dark);
+    // 深浅色模式：默认跟随系统自动切换；config.ini 的 `ThemeMode` 可强制 light/dark（见 Theme.h）
+    Theme::applyConfiguredScheme();
     qApp->setQuitOnLastWindowClosed(false);
     auto* winSwitcher = new Widget;
     winSwitcher->prepareListWidget(); // 优化：对ListWidget进行预先初始化，首次执行`setCurrentRow`特别耗时(472ms)

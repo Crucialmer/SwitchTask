@@ -23,6 +23,7 @@
 #include <QHash>
 #include "utils/SystemTray.h"
 #include "utils/ConfigManager.h"
+#include "utils/Theme.h"
 
 // 图标模式：true=优先每个窗口自身的图标（可区分不同文件夹/头像；源图通常 32px，放大到 64px 实测偏糊）；
 // false=统一应用图标（锐利）+ QQ 窗口叠加聊天头像角标。2026-10-11 实测后采用 false（B 方案）
@@ -89,6 +90,16 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     lw->viewport()->installEventFilter(this);
     // 悬停实时选中：开启 viewport 的鼠标跟踪——无按键按下的移动事件才会投递（eventFilter 的 MouseMove 分支依赖）
     lw->viewport()->setMouseTracking(true);
+
+    // 深浅色主题：面板/标题/选中底配色随系统自动切换（config.ini 的 ThemeMode 可强制 light/dark）
+    applyTheme();
+    connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
+        applyTheme(); // 系统深浅色切换时即时刷新（弹窗保持可见时也立即生效）
+    });
+    connect(&cfg, &ConfigManager::configEdited, this, [this] {
+        Theme::applyConfiguredScheme(); // 先同步 Qt 的强制模式，再应用配色
+        applyTheme();
+    });
 
     connect(lw, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* cur, QListWidgetItem*) {
         if (cur) {
@@ -280,6 +291,16 @@ void Widget::setupLabelFont() {
     });
 }
 
+/// 应用当前深浅色主题：底部标题颜色、列表选中/悬停/描边色、面板与列表重绘
+void Widget::applyTheme() {
+    ui->label->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::labelColor().name()));
+    if (iconDelegate)
+        iconDelegate->setColors(Theme::selectionFill(), Theme::hoverFill(), Theme::ringColor());
+    if (lw)
+        lw->viewport()->update();
+    update(); // 面板底色/描边重绘
+}
+
 void Widget::keyReleaseEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Alt) {
         groupWindowOrder.clear(); // for Alt + `
@@ -299,10 +320,10 @@ void Widget::paintEvent(QPaintEvent*) { //不绘制会导致鼠标穿透背景
     QPainterPath panel;
     panel.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8);
     painter.setPen(Qt::NoPen);
-    painter.setBrush(QColor(25, 25, 25, 100));
+    painter.setBrush(Theme::panelFill());
     painter.drawPath(panel);
     painter.setBrush(Qt::NoBrush);
-    painter.setPen(QPen(QColor(255, 255, 255, 36), 1)); // 细描边：在暗色壁纸上勾勒面板轮廓
+    painter.setPen(QPen(Theme::panelStroke(), 1)); // 细描边：在明/暗壁纸上勾勒面板轮廓（随主题切换）
     painter.drawPath(panel);
 }
 

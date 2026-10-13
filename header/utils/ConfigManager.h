@@ -17,6 +17,13 @@ enum DisplayMonitor {
     EnumCount // Just for count
 };
 
+enum ThemeMode {
+    ThemeAuto, // 0 跟随系统深浅色（默认）
+    ThemeLight, // 1 强制浅色
+    ThemeDark, // 2 强制深色
+    ThemeEnumCount // Just for count
+};
+
 class ConfigManager : public ConfigManagerBase {
     inline static const QString FileName = "config.ini";
 
@@ -57,6 +64,18 @@ public:
 
     void setDisplayMonitor(DisplayMonitor monitor) {
         set("DisplayMonitor", monitor);
+    }
+
+    /// 深浅色模式：`ThemeMode = auto / light / dark`（也可写 0/1/2；非法值回退 auto 并告警）
+    ThemeMode getThemeMode() {
+        const auto raw = get("ThemeMode", QStringLiteral("auto")).toString().trimmed().toLower();
+        if (raw == "light" || raw == "1")
+            return ThemeLight;
+        if (raw == "dark" || raw == "2")
+            return ThemeDark;
+        if (!(raw == "auto" || raw == "0" || raw.isEmpty()))
+            qWarning() << "Invalid ThemeMode (expect auto/light/dark), fallback to auto:" << raw;
+        return ThemeAuto;
     }
 
 private:
