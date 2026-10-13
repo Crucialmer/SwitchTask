@@ -20,6 +20,7 @@
 #include <QMetaEnum>
 #include <QFontMetrics>
 #include <QSet>
+#include <QHash>
 #include "utils/SystemTray.h"
 #include "utils/ConfigManager.h"
 
@@ -34,6 +35,7 @@ static constexpr int kCellLabelGap = 16;
 Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     ui->setupUi(this);
     lw = ui->listWidget;
+    ui->label->setTextFormat(Qt::PlainText); // 标题按纯文本渲染：防止窗口标题中的“伪 HTML”片段被富文本解析（省略号宽度按纯文本计算，两者保持一致）
     setWindowFlag(Qt::WindowStaysOnTopHint);
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground); //设置窗口背景透明 !但是会造成show()时的闪烁 和 绘制延迟(?)
@@ -130,6 +132,9 @@ void Widget::keyPressEvent(QKeyEvent* event) {
         {Qt::Key_H, Qt::Key_Left},  // ←
         {Qt::Key_L, Qt::Key_Right}, // →
     };
+    // Vim 键先行归一化为方向键：与 KeyboardHooker 的映射语义一致（钩子未生效时的兜底路径也走同一套处理）
+    if (const int mapped = VimArrows.value(key, 0); mapped != 0)
+        key = mapped;
     if (key == Qt::Key_Return || key == Qt::Key_Enter || key == Qt::Key_Space) {
         // 确认切换：pinned 模式的 Enter/空格；普通模式（按住Alt）也可空格提前确认
         if (this->isVisible()) {
@@ -156,21 +161,18 @@ void Widget::keyPressEvent(QKeyEvent* event) {
         // 注意：此分支在 Alt+` 同应用轮换分支之前——弹出器可见时 ` 键优先用于列表选择，
         // Alt+` 的同应用窗口轮换仅在弹出器不可见时生效（原语义保留）
         cycleSelection(modifiers & Qt::ShiftModifier);
-    } else if (key == Qt::Key_QuoteLeft && (modifiers & Qt::AltModifier)) { // Alt + `, 在前台窗口同组窗口间切换（弹出器不可见时）
-        if (this->isVisible() && !this->isMinimized()) {
-            // isVisible() == true if minimized
-            // 不使用`isForeground()`，即使`bringWindowToTop`(without active)，少数窗口也可能抢夺焦点，如`CAJViewer`
-            hide();
-            return;
-        }
+    } else if (key == Qt::Key_QuoteLeft && (modifiers & Qt::AltModifier)) { // Alt + `, 在前台窗口同组窗口间切换（弹出器不可见时；可见时的 ` 已由上一分支处理为列表选择）
         auto foreWin = GetForegroundWindow();
-        if (groupWindowOrder.isEmpty()) {
+        // 重建条件含“不含当前前台窗口”：击穿陈旧缓存（如任务栏滚轮遗留的分组、未观察到的 Alt 释放），避免轮换静默无动作
+        if (groupWindowOrder.isEmpty() || !groupWindowOrder.contains(foreWin)) {
             auto targetExe = Util::getWindowProcessPath(foreWin);
             groupWindowOrder = buildGroupWindowOrder(targetExe);
         }
         if (auto nextWin = rotateWindowInGroup(groupWindowOrder, foreWin, !(modifiers & Qt::ShiftModifier))) {
-            Util::switchToWindow(nextWin, true);
-            qInfo() << "(Alt+`)Switch to" << Util::getWindowTitle(nextWin) << Util::getClassName(nextWin);
+            if (IsWindow(nextWin)) { // 句柄可能已失效（组内窗口刚关闭）：避免对死句柄执行切换
+                Util::switchToWindow(nextWin, true);
+                qInfo() << "(Alt+`)Switch to" << Util::getWindowTitle(nextWin) << Util::getClassName(nextWin);
+            }
         }
     } else if (key == Qt::Key_Up || key == Qt::Key_Down) {
         if (auto item = lw->currentItem()) {
@@ -185,8 +187,6 @@ void Widget::keyPressEvent(QKeyEvent* event) {
         // 左右循环选择（完整处理而非仅边界）：钩子转发的合成事件直达本函数，
         // 不经过列表控件的原生光标移动，因此这里需要处理全部位置
         cycleSelection(key == Qt::Key_Right);
-    } else if (VimArrows.contains(key)) { // map [K J H L] to [↑ ↓ ← →]
-        QApplication::postEvent(lw, new QKeyEvent(QEvent::KeyPress, VimArrows.value(key), modifiers));
     }
     QWidget::keyPressEvent(event);
 }
@@ -209,16 +209,14 @@ void Widget::startSelectionGrow() {
 }
 
 /// show App description under the icon
-void Widget::showLabelForItem(QListWidgetItem* item, QString text) {
+void Widget::showLabelForItem(QListWidgetItem* item) {
     if (!item) return;
 
-    if (text.isNull()) {
-        // 底部标签：显示窗口自身标题；标题为空时兜底为进程描述
-        auto info = item->data(Qt::UserRole).value<WindowInfo>();
-        text = info.title;
-        if (text.isEmpty())
-            text = Util::getFileDescription(info.exePath);
-    }
+    // 底部标签：显示窗口自身标题；标题为空时兜底为进程描述
+    auto info = item->data(Qt::UserRole).value<WindowInfo>();
+    QString text = info.title;
+    if (text.isEmpty())
+        text = Util::getFileDescription(info.exePath);
     // macOS 风格：标题超出面板可用宽度时中部省略（…）——此前直接 setText 时，超宽文本会左对齐并被面板右缘硬切
     const int maxTextWidth = qMax(40, this->width() - 16); // 距面板左右缘各留 8px
     const QFontMetrics fm(ui->label->font());
@@ -321,13 +319,15 @@ void Widget::notifyForegroundChanged(HWND hwnd, ForegroundChangeSource source) {
     winActiveOrder[path].insert(hwnd, QDateTime::currentDateTime());
 
     auto sourceStr = QMetaEnum::fromType<ForegroundChangeSource>().valueToKey(source);
+    // 注意：不为日志同步求值 getFileDescription——那是 Shell 属性慢查询，而本函数是每次前台变化都会路过
     qDebug() << qUtf8Printable(QString("*ForeWin changed (%1):").arg(sourceStr)) // qUtf8Printable removes quotes ""
-            << Util::getWindowTitle(hwnd) << Util::getClassName(hwnd) << path << Util::getFileDescription(path);
+            << Util::getWindowTitle(hwnd) << Util::getClassName(hwnd) << path;
 } // TODO 控制面板 和 资源管理器 exe是同一个，如何区分图标
 
 /// collect, filter, sort Windows for presentation（每个窗口独立一项，按各自最近活跃排序）
 QList<WindowInfo> Widget::prepareWindowList() {
-    const auto list = Util::listValidWindows();
+    QHash<HWND, QString> pathMap; // 枚举时顺带解析进程路径（单趟完成，避免逐窗口重复查询）
+    const auto list = Util::listValidWindows(&pathMap);
     QSet<HWND> validHwnds(list.begin(), list.end());
     // 清理 winActiveOrder 中已失效的 HWND，防止无限增长与句柄复用导致的排序错乱
     for (auto it = winActiveOrder.begin(); it != winActiveOrder.end();) {
@@ -347,7 +347,7 @@ QList<WindowInfo> Widget::prepareWindowList() {
     QList<WindowInfo> winList;
     for (auto hwnd: list) {
         if (hwnd == this->hWnd()) continue; // skip self
-        auto path = Util::getWindowProcessPath(hwnd);
+        const auto path = pathMap.value(hwnd); // 路径已在枚举（过滤）时解析，不再重复查询
         if (path.isEmpty()) continue; // TODO 可能需要管理员权限
         winList.append({Util::getWindowTitle(hwnd), Util::getClassName(hwnd), hwnd, path});
     }
@@ -357,7 +357,8 @@ QList<WindowInfo> Widget::prepareWindowList() {
     for (auto it = winActiveOrder.begin(); it != winActiveOrder.end(); ++it)
         for (auto hIt = it.value().begin(); hIt != it.value().end(); ++hIt)
             winOrder.insert(hIt.key(), hIt.value());
-    std::sort(winList.begin(), winList.end(), [&winOrder](const WindowInfo& a, const WindowInfo& b) {
+    // stable_sort：无记录者互相等价，必须保持枚举序（与上述“无记录者排后，保持枚举序”的注释承诺一致）
+    std::stable_sort(winList.begin(), winList.end(), [&winOrder](const WindowInfo& a, const WindowInfo& b) {
         auto timeA = winOrder.value(a.hwnd);
         auto timeB = winOrder.value(b.hwnd);
         if (timeA.isNull() && timeB.isNull()) return false;
@@ -384,6 +385,8 @@ bool Widget::prepareListWidget() {
     if (!screen) {
         qWarning() << "Screen nullptr!";
         sysTray.showMessage("Error", "Screen nullptr!");
+        pinned = false;
+        hide(); // 列表不可用 ⇒ 弹窗不驻留（否则空面板会留在屏幕上）
         return false;
     }
 
@@ -496,7 +499,9 @@ bool Widget::prepareListWidget() {
         lwRect.moveTop(ListWidgetMargin.top());                // 顶部固定：底部留白按“文字等距”规则确定
         lw->move(lwRect.topLeft());
     } else {
-        // no item, hide ? TODO
+        // 无可切换窗口：确保弹窗不驻留（清空后的空面板不能留在屏幕上）
+        pinned = false;
+        hide();
         return false;
     }
 
@@ -593,8 +598,8 @@ void Widget::cycleSelection(bool forward) {
 void Widget::sortGroupWindows(QList<HWND>& windows, const QString& exePath) {
     auto activeOrdMap = winActiveOrder.value(exePath);
     if (activeOrdMap.isEmpty()) return;
-    // sort by active order
-    std::sort(windows.begin(), windows.end(), [&activeOrdMap](HWND a, HWND b) {
+    // sort by active order（stable：无记录者保持既有次序）
+    std::stable_sort(windows.begin(), windows.end(), [&activeOrdMap](HWND a, HWND b) {
         return activeOrdMap.value(a) > activeOrdMap.value(b); // default value if not found
     }); // 失效 HWND 的剔除由 prepareWindowList 统一执行（此处排序容忍映射中存在失效项）
 }
@@ -670,7 +675,7 @@ bool Widget::eventFilter(QObject* watched, QEvent* event) {
             if (lw->currentItem() != item)
                 lw->setCurrentItem(item);
             auto info = item->data(Qt::UserRole).value<WindowInfo>();
-            if (!info.hwnd) return false;
+            if (!info.hwnd || !IsWindow(info.hwnd)) return false; // 防御：列表构建后窗口可能已关闭（死句柄的 IsIconic 未定义）
 
             // 滚轮语义：↑=该窗口置顶预览（不激活）；↓=最小化该窗口（原"同应用窗口轮换"随合并移除）
             bool isRollUp = wheelEvent->angleDelta().x() > 0; // ListWidget的方向改成了从左到右，所以滚轮方向从y()变成x()了；伪造的 keyPress 事件（keyPressEvent 的 Up/Down 分支）同样使用 x 分量，与真实滚轮保持一致
@@ -727,9 +732,10 @@ void Widget::rotateTaskbarWindowInGroup(const QString& exePath, bool forward, in
             // 如果有多个子进程路径，就根据validWindows过滤
             qWarning() << "!Multiple child processes:" << childPaths;
             QSet<QString> validPaths;
+            QHash<HWND, QString> pathMap; // 枚举时已解析路径
             // If range-initializer returns a temporary, its lifetime is extended until the end of the loop
-            for (auto hwnd: Util::listValidWindows()) {
-                if (auto path = Util::getWindowProcessPath(hwnd); !path.isEmpty())
+            for (auto hwnd: Util::listValidWindows(&pathMap)) {
+                if (auto path = pathMap.value(hwnd); !path.isEmpty())
                     validPaths.insert(path.toLower());
             }
             for (auto& path: childPaths) {

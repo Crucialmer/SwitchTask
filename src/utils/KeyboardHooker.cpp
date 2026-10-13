@@ -5,7 +5,7 @@
 #include "utils/Util.h"
 #include "widget.h"
 
-LRESULT keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     using Hooker = KeyboardHooker;
     // Tab 自动重复守卫：按住按键时系统约30ms触发一次重复 keydown，pinned 模式下重复的
     // requestShowPinned 会被误判为"再次按下=确认切换"，导致弹出窗口刚显示就被切走（无法保持）。
@@ -14,13 +14,18 @@ LRESULT keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     // Ctrl+W 自动重复守卫：按住 Ctrl+W 时系统会连续触发重复 keydown；此时若每个重复都执行关闭，
     // 会在"条目被移除后自动改选"的语义下连续关闭用户并未选中的窗口——按住只关一个，松开再按关下一个。
     static bool s_wDown = false;
+    static ULONGLONG s_wDownAt = 0; // 守卫激活时刻（超时自愈用）
     if (nCode == HC_ACTION) {
         if (wParam == WM_SYSKEYDOWN || wParam == WM_KEYDOWN) { // Alt & [Alt按下时的Tab]属于SysKey
             auto* pKeyBoard = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
             // Ctrl+W 按住期间的重复 keydown：无论弹窗是否仍显示，一律吞掉直到 keyup——
             // 否则"关掉最后一项、弹窗自动收起"后残留的重复会漏给恢复焦点的窗口，触发对方的 Ctrl+W
-            if (pKeyBoard->vkCode == 'W' && s_wDown)
-                return 1;
+            if (pKeyBoard->vkCode == 'W' && s_wDown) {
+                // 超时自愈：keyup 丢失（钩子被系统跳过/被其他钩子吞掉）时，守卫不至于永久吞掉 W 键
+                if (GetTickCount64() - s_wDownAt < 2000)
+                    return 1;
+                s_wDown = false;
+            }
             // inner: `GetAsyncKeyState`, doc warns this usage, but it seems to work fine(?)
             // If it's broken, maybe we can record Modifier manually in every callback
             /* Note from Docs:
@@ -86,8 +91,8 @@ LRESULT keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                         // Alt 按住时 Tab/` 已由上方分支处理
                         case VK_TAB:    if (!isAltPressed && !ctrl) qtKey = Qt::Key_Tab; break;
                         case VK_OEM_3:  if (!isAltPressed && !ctrl) qtKey = Qt::Key_QuoteLeft; break;
-                        case VK_RETURN: if (!ctrl) qtKey = Qt::Key_Return; break;
-                        case VK_SPACE:  if (!ctrl) qtKey = Qt::Key_Space; break;
+                        case VK_RETURN: if (!ctrl && isForeground) qtKey = Qt::Key_Return; break; // 确认键有副作用：仅弹窗持有前台时接管（防止吞掉其他程序里的回车）
+                        case VK_SPACE:  if (!ctrl && isForeground) qtKey = Qt::Key_Space; break;
                         case VK_ESCAPE: if (!ctrl) qtKey = Qt::Key_Escape; break; // Ctrl+Esc=开始菜单，放行
                         case VK_UP:     if (!ctrl) qtKey = Qt::Key_Up; break;
                         case VK_DOWN:   if (!ctrl) qtKey = Qt::Key_Down; break;
@@ -103,8 +108,9 @@ LRESULT keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                         // Ctrl+W：关闭当前选中的窗口（等效鼠标中键；仅弹窗持有前台时接管，
                         // 避免吞掉其他窗口里正常的 Ctrl+W）；自动重复由入口守卫统一处理（s_wDown）
                         case 'W':
-                            if (isForeground && ctrl) {
+                            if (isForeground && ctrl && !Util::isKeyPressed(VK_SHIFT)) { // Ctrl+Shift+W 是许多软件的快捷键：放行，勿吞
                                 s_wDown = true;
+                                s_wDownAt = GetTickCount64();
                                 qtKey = Qt::Key_W;
                             }
                             break;
@@ -127,7 +133,7 @@ LRESULT keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 s_ctrlTabDown = false; // 释放时重置自动重复守卫
             if (pKeyBoard->vkCode == 'W')
                 s_wDown = false; // Ctrl+W 释放：重置自动重复守卫
-            if (pKeyBoard->vkCode == VK_LMENU && Hooker::receiver) {
+            if ((pKeyBoard->vkCode == VK_LMENU || pKeyBoard->vkCode == VK_RMENU) && Hooker::receiver) {
                 // BUG: Alt + 方向键 长按，过一秒会触发Alt release，而Alt + 其他键则不会，可能是Windows保护机制或键盘问题？
                 qDebug() << "Alt released!";
                 auto event = new QKeyEvent(QEvent::KeyRelease, Qt::Key_Alt, Qt::NoModifier);
@@ -140,18 +146,18 @@ LRESULT keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
 }
 
 KeyboardHooker::KeyboardHooker(QWidget* _receiver) {
-    if (KeyboardHooker::receiver) {
+    if (KeyboardHooker::receiver || h_keyboard) {
         qWarning() << "Only one KeyboardHooker can be installed!";
+        return;
+    }
+    if (!_receiver) { // 先校验接收者：不要把钩子装上却永远没有接收者（旧顺序会留下无人卸载的钩子）
+        qWarning() << "Receiver is nullptr!";
         return;
     }
     // 回调函数的执行与消息循环密切相关，在Get/PeekMessage时，系统才会触发回调; [https://learn.microsoft.com/en-us/windows/win32/winmsg/mouseproc]
     h_keyboard = SetWindowsHookEx(WH_KEYBOARD_LL, (HOOKPROC) keyboardProc, GetModuleHandle(nullptr), 0);
     if (!h_keyboard) {
         qWarning() << "Failed to install h_keyboard!";
-        return;
-    }
-    if (!_receiver) {
-        qWarning() << "Receiver is nullptr!";
         return;
     }
     KeyboardHooker::receiver = _receiver;

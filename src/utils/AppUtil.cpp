@@ -109,10 +109,10 @@ namespace AppUtil {
 
         QStringList matchingFiles = dir.entryList(filters, QDir::Files, QDir::Size); // sort by size
 
-        // `remove_if` 不会真正删除，只是移动到后面，返回新的end迭代器
-        auto _ = std::remove_if(matchingFiles.begin(), matchingFiles.end(), [](const QString& fileName) {
+        // remove_if 只搬移、不收缩，必须配合 erase——否则“全是对比度变体”时 first() 仍会取到被剔除的文件
+        matchingFiles.erase(std::remove_if(matchingFiles.begin(), matchingFiles.end(), [](const QString& fileName) {
             return fileName.contains("_contrast-black.") || fileName.contains("_contrast-white.");
-        });
+        }), matchingFiles.end());
 
         if (!matchingFiles.isEmpty()) {
             qDebug() << "Found matching file:" << matchingFiles.first();
@@ -352,11 +352,10 @@ namespace AppUtil {
 
             qDebug() << "Not Found. Try list windows' description";
             QSet<QString> paths;
-            const auto windows = Util::listValidWindows();
-            for (auto hwnd: windows) {
-                QString path = Util::getWindowProcessPath(hwnd);
-                paths.insert(path);
-            }
+            QHash<HWND, QString> pathMap; // 枚举时已解析路径，免去逐窗口重复查询
+            const auto windows = Util::listValidWindows(&pathMap);
+            for (auto hwnd: windows)
+                paths.insert(pathMap.value(hwnd));
             for (const auto& path: paths) {
                 QString description = Util::getFileDescription(path); // slow
                 desc2Path.insert(description, path);

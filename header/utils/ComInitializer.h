@@ -19,6 +19,9 @@
 // 每个线程都要单独初始化COM
 class ComInitializer { // RAII
 public:
+    ComInitializer(const ComInitializer&) = delete; // 拷贝会导致同一线程 CoUninitialize 两次，破坏 STA 引用计数
+    ComInitializer& operator=(const ComInitializer&) = delete;
+
     ComInitializer() {
         hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED); // == CoInitialize(nullptr); single-threaded apartment
         if (SUCCEEDED(hr))

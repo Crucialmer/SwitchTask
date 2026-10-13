@@ -22,8 +22,12 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
     ui->progressBar->hide();
     connect(ui->btn_recheck, &QPushButton::clicked, this, &UpdateDialog::fetchGithubReleaseInfo);
     connect(ui->btn_update, &QPushButton::clicked, this, [this] {
-        ui->btn_update->setEnabled(false);
         auto url = relInfo.downloadUrl;
+        if (url.isEmpty()) { // 防御：Release 未提供可下载资产时不得进入下载流程（原先会拼出目录路径并以难懂的报错收场）
+            ui->textBrowser->setMarkdown("## Failed❎\nNo downloadable asset in this release");
+            return;
+        }
+        ui->btn_update->setEnabled(false);
         archive.fileName = QUrl(url).fileName();
         download(url, qApp->applicationDirPath() + '/' + archive.fileName);
     });
@@ -82,9 +86,15 @@ void UpdateDialog::fetchGithubReleaseInfo() {
         relInfo.ver = normalizeVersion(obj["tag_name"].toString());
         relInfo.description = obj["body"].toString();
         relInfo.publishTime = toLocalTime(obj["published_at"].toString());
+        if (relInfo.ver.isNull()) { // tag 非 `vX.Y.Z` 形式：明确报错，避免空版本与当前版本比较后静默显示“已是最新”
+            qWarning() << "Cannot parse release tag:" << obj["tag_name"].toString();
+            ui->textBrowser->setMarkdown("## Cannot parse release tag❎\n" + obj["tag_name"].toString());
+            ui->btn_update->setEnabled(false);
+            return;
+        }
 
+        relInfo.downloadUrl.clear(); // 无条件清空：assets 缺失时也不得残留上次请求的下载地址（否则可能误下载旧版本）
         if (const auto assets = obj["assets"].toArray(); !assets.isEmpty()) {
-            relInfo.downloadUrl.clear(); // 先清空，防止上次请求的残留值在“assets 全非 zip”时被误用
             // 筛选 zip asset，避免取到非压缩包或顺序不确定导致错误下载
             for (const auto& asset: assets) {
                 const auto name = asset.toObject()["name"].toString();
@@ -214,7 +224,7 @@ void UpdateDialog::verifyUpdate(const QCoreApplication& app) {
     QCommandLineOption versionUpdate("verify-update", "verify update, e.g. `1.0->2.0`", "versionChange");
     // the `valueName` needs to be set if the option expects a value.
     parser.addOption(versionUpdate);
-    parser.process(app);
+    parser.parse(app.arguments()); // parse 而非 process：未知参数不应让程序在启动时直接退出（GUI 程序无控制台，“双击没反应”难排查）
     if (parser.isSet(versionUpdate)) {
         // Qt 好像不支持`-v 1.0.1 1.0.2`这样多values，只能`-v 1.0.1 -v 1.0.2`
         auto versions = parser.value(versionUpdate).split("->");

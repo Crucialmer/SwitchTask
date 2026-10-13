@@ -117,8 +117,11 @@ namespace Util {
 
     // slow
     QString getWindowProcessPath(HWND hwnd) {
-        if (AppUtil::isAppFrameWindow(hwnd)) // AppFrame 用于焦点和窗口操作
-            hwnd = AppUtil::getAppCoreWindow(hwnd); // AppCore 用于获取exe路径
+        if (AppUtil::isAppFrameWindow(hwnd)) { // AppFrame 用于焦点和窗口操作
+            if (auto core = AppUtil::getAppCoreWindow(hwnd)) // AppCore 用于获取exe路径
+                hwnd = core;
+            // 取不到 Core（如最小化时脱离 Frame）：保留 Frame 句柄兜底，避免窗口因空路径被整窗丢弃
+        }
 
         DWORD pid = 0;
         GetWindowThreadProcessId(hwnd, &pid);
@@ -130,6 +133,7 @@ namespace Util {
     /// 根据可执行文件路径查找进程 PID
     DWORD findProcessByPath(const QString& exePath) {
         DWORD targetPID = 0;
+        const QString exeName = QFileInfo(exePath).fileName();
         // Warning: snapshot是消耗品，不能重复使用
         HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snapshot == INVALID_HANDLE_VALUE) {
@@ -139,6 +143,9 @@ namespace Util {
         PROCESSENTRY32 entry = {sizeof(PROCESSENTRY32)};
         if (Process32First(snapshot, &entry)) {
             do {
+                // 先用进程名短路：全系统绝大多数进程名与目标不符，避免逐一 OpenProcess 查询完整路径
+                if (QString::compare(QString::fromWCharArray(entry.szExeFile), exeName, Qt::CaseInsensitive) != 0)
+                    continue;
                 QString processPath = getProcessPath(entry.th32ProcessID);
                 if (QString::compare(processPath, exePath, Qt::CaseInsensitive) == 0) {
                     targetPID = entry.th32ProcessID;
@@ -272,7 +279,7 @@ namespace Util {
     /// filter HWND by some rules
     /// @param skipVisibleCheck skip IsWindowVisible check<br>
     /// 在窗口创建过程中，会触发 EVENT_SYSTEM_FOREGROUND，但是这瞬间 IsWindowVisible 为false
-    bool isWindowAcceptable(HWND hwnd, bool skipVisibleCheck) {
+    bool isWindowAcceptable(HWND hwnd, bool skipVisibleCheck, QString* pathOut) {
         static const QStringList BlackList_ClassName = {
             "Progman",
             "Windows.UI.Core.CoreWindow", // 过滤UWP Core，从Frame入手
@@ -303,24 +310,40 @@ namespace Util {
             && !className.startsWith("imestatuspop_classname{") // 输入法（的推销弹窗）https://s3.bmp.ovh/imgs/2024/12/23/bb136fde101a41ce.png
         ) {
             auto path = getWindowProcessPath(hwnd); // 耗时操作，减少次数
-            if (!BlackList_ExePath.contains(path) && !BlackList_FileName.contains(QFileInfo(path).fileName()))
+            if (!BlackList_ExePath.contains(path) && !BlackList_FileName.contains(QFileInfo(path).fileName())) {
+                if (pathOut)
+                    *pathOut = path; // 带回路径：调用方（枚举）免去再次查询
                 return true;
+            }
         }
         return false;
     }
 
+    namespace {
+        /// EnumWindows 回调上下文：收集通过过滤的窗口，并可选带回其进程路径（枚举时已解析）
+        struct EnumWindowsCtx {
+            QList<HWND>* windowList;
+            QHash<HWND, QString>* pathMap; // 可空
+            QString path; // 当前窗口进程路径（回调内临时存放）
+        };
+    }
+
     BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
-        if (isWindowAcceptable(hwnd)) {
-            auto* windowList = reinterpret_cast<QList<HWND>*>(lParam);
-            windowList->append(hwnd);
+        auto* ctx = reinterpret_cast<EnumWindowsCtx*>(lParam);
+        ctx->path.clear();
+        if (isWindowAcceptable(hwnd, false, ctx->pathMap ? &ctx->path : nullptr)) {
+            ctx->windowList->append(hwnd);
+            if (ctx->pathMap)
+                ctx->pathMap->insert(hwnd, ctx->path);
         }
         return TRUE;
     }
 
-    QList<HWND> enumWindows() {
+    QList<HWND> enumWindows(QHash<HWND, QString>* pathMap) {
         QList<HWND> list;
+        EnumWindowsCtx ctx{&list, pathMap};
         // only enum top-level windows
-        EnumWindows(EnumWindowsProc, reinterpret_cast<LPARAM>(&list));
+        EnumWindows(EnumWindowsProc, reinterpret_cast<LPARAM>(&ctx));
         return list;
     }
 
@@ -337,18 +360,21 @@ namespace Util {
     }
 
     // about 2ms
-    QList<HWND> listValidWindows() {
+    QList<HWND> listValidWindows(QHash<HWND, QString>* pathMap) {
         qDebug() << "#List Valid Windows";
         static const bool isUserAdmin = IsUserAnAdmin(); // 和 isProcessElevated(GetCurrentProcess()) 好像没区别？
+        // 非管理员模式下逐窗口的“高权限”探测（一次 OpenProcess 链）仅供诊断日志用：默认关闭，
+        // 设置环境变量 SWITCHTASK_LOG_ELEVATED=1 后启用（弹窗/预取热路径不再为此付出系统调用开销）
+        static const bool logElevatedWindows = !isUserAdmin && qEnvironmentVariableIsSet("SWITCHTASK_LOG_ELEVATED");
         using namespace AppUtil;
         QList<HWND> list;
-        const auto winList = Util::enumWindows();
+        const auto winList = Util::enumWindows(pathMap);
         for (auto hwnd: winList) {
             if (!hwnd) continue;
             // 高权限窗口：非管理员运行时也纳入列表（switchToWindow 内置 SetForegroundWindow
             // 失败时的回退链，见其注释），最大化非管理员模式下的可用功能。
             // 管理员窗口的 exe 路径经 PROCESS_QUERY_LIMITED_INFORMATION 仍可读取（图标/标题正常）。
-            if (!isUserAdmin && isWindowElevated(hwnd)) {
+            if (logElevatedWindows && isWindowElevated(hwnd)) {
                 qDebug() << "#elevated window included (non-admin mode):" << hwnd << getWindowTitle(hwnd);
             }
 
@@ -389,9 +415,10 @@ namespace Util {
     /// list windows filtered by exePath
     QList<HWND> listValidWindows(const QString& exePath) {
         QList<HWND> windows;
-        const auto winList = listValidWindows();
+        QHash<HWND, QString> pathMap; // 枚举时顺带解析路径，避免逐窗口二次查询
+        const auto winList = listValidWindows(&pathMap);
         for (auto hwnd: winList) {
-            if (getWindowProcessPath(hwnd).compare(exePath, Qt::CaseInsensitive) == 0) // 用 == 就寄了，特别是taskbar
+            if (pathMap.value(hwnd).compare(exePath, Qt::CaseInsensitive) == 0) // 用 == 就寄了，特别是taskbar
                 windows << hwnd;
         }
         return windows;
@@ -430,7 +457,8 @@ namespace Util {
     QIcon getJumboIcon(const QString& filePath) {
         SHFILEINFOW sfi = {nullptr};
         // Get the icon index using SHGetFileInfo
-        SHGetFileInfo(filePath.toStdWString().c_str(), 0, &sfi, sizeof(SHFILEINFOW), SHGFI_SYSICONINDEX);
+        if (!SHGetFileInfo(filePath.toStdWString().c_str(), 0, &sfi, sizeof(SHFILEINFOW), SHGFI_SYSICONINDEX))
+            return {}; // 失败时 iIndex 无效（0 会取到系统图标列表中的无关图标），交由上层兜底
 
         // 48x48 icons, use SHIL_EXTRALARGE
         // 256x256 icons (after Vista), use SHIL_JUMBO
@@ -471,8 +499,11 @@ namespace Util {
 
     /// 通过窗口句柄获取UWP安装目录，如果该窗口不是UWP应用，则返回""
     QString getUwpInstallDirFromHwnd(HWND hwnd) {
-        if (AppUtil::isAppFrameWindow(hwnd))
-            hwnd = AppUtil::getAppCoreWindow(hwnd); // AppCore 用于获取exe路径
+        if (AppUtil::isAppFrameWindow(hwnd)) { // AppCore 用于获取exe路径
+            if (auto core = AppUtil::getAppCoreWindow(hwnd))
+                hwnd = core;
+            // 取不到 Core 时保留 Frame 兜底（后续探测失败自然走非 UWP 分支）
+        }
         // 仅通过`isAppFrameWindow(hwnd)`来判断UWP可能不够准确
 
         DWORD pid;
@@ -523,7 +554,8 @@ namespace Util {
         /// 供后台线程使用：提取 Jumbo 图标为 QImage（全程不创建 QPixmap/QIcon，线程安全）
         QImage extractJumboIconImage(const QString& filePath) {
             SHFILEINFOW sfi = {nullptr};
-            SHGetFileInfo(filePath.toStdWString().c_str(), 0, &sfi, sizeof(SHFILEINFOW), SHGFI_SYSICONINDEX);
+            if (!SHGetFileInfo(filePath.toStdWString().c_str(), 0, &sfi, sizeof(SHFILEINFOW), SHGFI_SYSICONINDEX))
+                return {}; // 失败时 iIndex 无效：跳过提取（避免把系统图标列表里的无关图标缓存下来）
 
             IImageList* imageList = nullptr;
             HRESULT hResult = SHGetImageList(SHIL_JUMBO, IID_IImageList, (void**) &imageList);
@@ -550,8 +582,9 @@ namespace Util {
             timer.start();
             int count = 0;
             QSet<QString> seen;
-            for (auto hwnd: listValidWindows()) {
-                auto path = getWindowProcessPath(hwnd);
+            QHash<HWND, QString> pathMap; // 枚举时已解析各窗口进程路径
+            for (auto hwnd: listValidWindows(&pathMap)) {
+                const auto path = pathMap.value(hwnd);
                 if (path.isEmpty() || seen.contains(path)) continue;
                 seen.insert(path);
                 {
@@ -585,6 +618,7 @@ namespace Util {
     void markIconResolved(const QString& path) {
         QMutexLocker locker(&g_iconPrefetchMutex);
         g_iconResolvedPaths.insert(path);
+        g_iconImageCache.remove(path); // 最终图标已产出：预取图像不再需要（UWP 分支不消费预取图像，避免其永久驻留）
     }
 
     /// 启动后台图标预取（GUI 线程调用一次）：启动后 10s 首跑，此后每 60s 一次

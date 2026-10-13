@@ -25,14 +25,15 @@ public:
 
     /// 状态查询（带缓存）：schtask 查询需 fork 子进程（10ms~秒级），
     /// 托盘菜单 aboutToShow 等高频调用点不应阻塞 GUI 线程。
-    /// 缓存策略：结果缓存 5 秒；任何 on()/off() 写操作后立即失效。
+    /// 缓存策略：结果缓存 60 秒（schtasks 查询需 fork 子进程，托盘菜单弹出不应频繁等待；
+    /// 状态只会在本程序的写操作中改变，写后立即失效）。
     static bool isOn(bool refresh = false) {
 #ifdef HAS_SCHTASK
         static qint64 lastQueryMs = 0;
         static bool cachedIsOn = false;
         static bool hasCache = false;
         const auto now = QDateTime::currentMSecsSinceEpoch();
-        if (refresh || !hasCache || now - lastQueryMs > 5000) {
+        if (refresh || !hasCache || now - lastQueryMs > 60 * 1000) {
             cachedIsOn = isOn_reg() || ScheduledTask::queryTask(SCHTASK_NAME);
             lastQueryMs = now;
             hasCache = true;
@@ -48,8 +49,10 @@ public:
 #ifdef HAS_SCHTASK
         // MS doc: 此函数是 CheckTokenMembership 的包装器, 建议直接调用该函数来确定管理员组状态; 而不是调用 IsUserAnAdmin
         if (IsUserAnAdmin()) {
-            off_reg();
-            if (!ScheduledTask::createTask(SCHTASK_NAME))
+            // 先建任务、成功后再移除注册表项：createTask 失败时保留原有（注册表）自启动能力，而不是两边都没有
+            if (ScheduledTask::createTask(SCHTASK_NAME))
+                off_reg();
+            else
                 QMessageBox::warning(nullptr, "Failed to create ScheduledTask", "maybe check log?(if any)");
             // 这里使用`QMessageBox`而非`sysTray.showMessage`，是为了避免循环依赖 & 保持Startup独立性
         } else {

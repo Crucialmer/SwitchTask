@@ -6,10 +6,12 @@
 IUIAutomation* UIAutomation::pAutomation = nullptr;
 
 bool UIAutomation::init() {
+    if (pAutomation) // 幂等：已初始化则直接成功（原实现重复调用会泄漏旧实例）
+        return true;
     qDebug() << "UIAutomation initializing";
-    pAutomation = nullptr;
     HRESULT hr = CoCreateInstance(CLSID_CUIAutomation, nullptr, CLSCTX_INPROC_SERVER, IID_IUIAutomation, (void**) &pAutomation);
     if (FAILED(hr) || !pAutomation) {
+        pAutomation = nullptr;
         qCritical() << "Failed to create UIAutomation instance." << qt_error_string(hr);
         return false;
     }

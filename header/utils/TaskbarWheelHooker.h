@@ -24,6 +24,8 @@ private slots:
 
 private:
     HHOOK h_mouse = nullptr;
+    bool isLastTaskbar = false; // 光标是否停留在任务栏（替代原函数内 static：跨实例共享、析构不复位）
+    int hookFailCount = 0; // WH_MOUSE_LL 安装失败计数（限次重试，避免每 tick 重刷日志）
 };
 
 

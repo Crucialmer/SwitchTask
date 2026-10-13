@@ -8,7 +8,7 @@
 /// 低级钩子回调：只做廉价判定与事件缓存，重活（UIA查询/路径解析/切窗）全部由主线程
 /// processWheelEvent() 异步处理——WH_MOUSE_LL 回调超时（默认1s）会被系统静默跳过，
 /// 表现为滚轮偶发失灵，因此回调内不做任何耗时操作。
-LRESULT mouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
+LRESULT CALLBACK mouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION && wParam == WM_MOUSEWHEEL) {
         auto* data = (MSLLHOOKSTRUCT*) lParam;
         HWND topLevelHwnd = Util::topWindowFromPoint(data->pt);
@@ -36,7 +36,12 @@ void TaskbarWheelHooker::processWheelEvent(bool isUp, HWND topLevelHwnd) {
         qDebug() << (el.getClassName() != "CEF-OSC-WIDGET" ? "successful!" : "failed");
     }
     if (el.getClassName() == "Taskbar.TaskListButtonAutomationPeer") {
-        auto appid = el.getAutomationId().mid(QStringLiteral("Appid: ").size()); // TODO 在副屏 有时候会是"TaskbarFrame"
+        const auto automationId = el.getAutomationId(); // TODO 在副屏 有时候会是"TaskbarFrame"
+        if (!automationId.startsWith(QStringLiteral("Appid: "))) { // 非预期来源：宁可不动，也不要用被截断的字符串匹配到错误的分组
+            qDebug() << "Unexpected AutomationId, skipped:" << automationId;
+            return;
+        }
+        auto appid = automationId.mid(QStringLiteral("Appid: ").size());
         auto name = el.getName();
         int windows = 0;
         const auto Dash = QStringLiteral(" - ");
@@ -64,20 +69,32 @@ TaskbarWheelHooker::TaskbarWheelHooker() {
 
     auto* timer = new QTimer(this);
     timer->callOnTimeout(this, [this]() {
-        static bool isLastTaskbar = false;
         HWND topLevelHwnd = Util::topWindowFromPoint(Util::getCursorPos());
         bool isTaskbar = Util::isTaskbarWindow(topLevelHwnd);
         if (isLastTaskbar != isTaskbar) {
-            isLastTaskbar = isTaskbar;
             if (isTaskbar) {
-                // 依赖事件循环
-                h_mouse = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) mouseProc, GetModuleHandle(nullptr), 0);
-                if (h_mouse == nullptr)
-                    qCritical() << "Failed to install h_mouse";
-                qDebug() << "#Enter Taskbar" << QTime::currentTime();
+                // 依赖事件循环。安装失败则回滚状态、下个 tick 重试（限 5 次）——
+                // 原实现失败即“本次会话永久失效”，且对小概率失败无自愈
+                if (hookFailCount < 5) {
+                    h_mouse = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) mouseProc, GetModuleHandle(nullptr), 0);
+                    if (h_mouse) {
+                        hookFailCount = 0;
+                        isLastTaskbar = true;
+                        qDebug() << "#Enter Taskbar" << QTime::currentTime();
+                    } else {
+                        if (hookFailCount++ == 0)
+                            qCritical() << "Failed to install h_mouse";
+                        if (hookFailCount >= 5)
+                            qWarning() << "h_mouse install failed 5 times; taskbar wheel disabled until next enter";
+                    }
+                } else {
+                    isLastTaskbar = true; // 本轮已放弃：保持状态避免每 tick 重入
+                }
             } else {
                 UnhookWindowsHookEx(h_mouse);
                 h_mouse = nullptr;
+                hookFailCount = 0; // 离开任务栏时复位：下次进入重新尝试
+                isLastTaskbar = false;
                 qDebug() << "#Leave Taskbar" << QTime::currentTime();
                 emit leaveTaskbar();
             }

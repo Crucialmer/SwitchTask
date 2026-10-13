@@ -5,6 +5,7 @@
 #include <Windows.h>
 #include <QListWidget>
 #include <QDebug>
+#include <QDateTime>
 
 struct WindowInfo {
     QString title;
@@ -79,7 +80,7 @@ private:
     void startSelectionGrow();
     /// 循环选择（forward=true 下一个 / false 上一个）
     void cycleSelection(bool forward);
-    void showLabelForItem(QListWidgetItem* item, QString text = QString());
+    void showLabelForItem(QListWidgetItem* item);
     void setupLabelFont();
     void sortGroupWindows(QList<HWND>& windows, const QString& exePath);
     QList<HWND> buildGroupWindowOrder(const QString& exePath);

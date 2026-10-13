@@ -115,7 +115,12 @@ bool ScheduledTask::createTask(const QString& taskName) {
     // （UTF-8 声明会被直接拒绝："任务 XML 格式错误 … 无法切换编码"）
     QByteArray data("\xFF\xFE", 2); // UTF-16LE BOM
     data.append(reinterpret_cast<const char*>(xml.utf16()), xml.size() * 2);
-    file.write(data);
+    if (file.write(data) != data.size()) { // 磁盘满等场景：写出截断的 XML 会让 schtasks 报错更难定位
+        qWarning() << "Failed to write schtasks.xml";
+        file.close();
+        file.remove();
+        return false;
+    }
     file.close();
 
     QProcess process;
@@ -123,6 +128,8 @@ bool ScheduledTask::createTask(const QString& taskName) {
                   QStringList() << "/create" << "/tn" << taskName << "/xml" << file.fileName() << "/f");
     if (!process.waitForFinished(10000)) {
         qWarning() << "createTask: schtasks timeout";
+        process.kill(); // 先终止再删除：schtasks 仍在读取该 XML 时删除会因共享冲突失败，在 %TEMP% 留下残留文件
+        process.waitForFinished(1000);
         QFile::remove(file.fileName());
         return false;
     }
@@ -150,6 +157,10 @@ bool ScheduledTask::queryTask(const QString& taskName) {
     }
 
     auto output = QString::fromLocal8Bit(process.readAllStandardOutput());
+    if (output.trimmed().isEmpty()) { // 防御：退出码为 0 但无输出（环境异常）时，下方 removeFirst()/chopped() 的前提不成立
+        qWarning() << "[queryTask] empty output for:" << taskName;
+        return false;
+    }
     auto csvList = output.trimmed().removeFirst().chopped(1).split("\",\""); // ","
     if (csvList.size() <= 8) { // 防御：列数不足时避免越界
         qWarning() << "[queryTask] csv column count unexpected:" << csvList.size() << output;

@@ -33,6 +33,7 @@ public:
 
     UIElement(const UIElement&) = delete;
     UIElement& operator=(const UIElement&) = delete; // 如果不实现又不delete，默认浅拷贝指针就寄了，直接卡死
+    UIElement(UIElement&& other) noexcept : pElement(other.pElement) { other.pElement = nullptr; } // 具名对象按值返回/传递时依赖它
 
     // 最好用std::unique_ptr管理，避免自己实现移动
     UIElement& operator=(UIElement&& other) noexcept {
