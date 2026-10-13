@@ -65,9 +65,9 @@ jobs:
         shell: pwsh
         run: |
           $dir = "${{ steps.exe.outputs.path }}"
-          $ver = "${{ github.ref_name }}"
-          if ($ver -eq "" -or $ver -like "refs/*") { $ver = "manual-${{ github.run_number }}" }
-          $zipName = "SwitchTask-$ver-win64.zip"
+          # 发布命名规范（用户约定，2026-10-13）：资产以标准软件名为准——SwitchTask.zip，
+          # 不带版本号/架构等附加信息（解压后文件夹即为 SwitchTask）
+          $zipName = "SwitchTask.zip"
           Compress-Archive -Path "$dir\*" -DestinationPath $zipName
           echo "name=$zipName" >> $env:GITHUB_OUTPUT
           echo "Packaged: $zipName ($((Get-Item $zipName).Length / 1MB) MB)"
