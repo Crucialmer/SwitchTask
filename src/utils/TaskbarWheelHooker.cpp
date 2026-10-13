@@ -27,22 +27,28 @@ void TaskbarWheelHooker::processWheelEvent(bool isUp, HWND topLevelHwnd) {
     auto delta = isUp ? 120 : -120;
     qDebug() << "--- Taskbar Mouse Wheel" << (delta > 0 ? "↑" : "↓");
     auto el = UIAutomation::getElementUnderMouse(); // RVO优化 不会调用移动构造; // this line may bomb TODO 也许可以改成遍历元素
-    qDebug() << delta << el.getClassName() << el.getAutomationId() << el.getName();
-    if (el.getClassName() == "CEF-OSC-WIDGET") { // Nvidia Overlay
+    // UIA 属性查询是跨进程 RPC：各属性只取一次、全程复用（原先同一事件最多 7 次 RPC）
+    auto cls = el.getClassName();
+    auto automationId = el.getAutomationId();
+    auto name = el.getName();
+    qDebug() << delta << cls << automationId << name;
+    if (cls == "CEF-OSC-WIDGET") { // Nvidia Overlay
         // 当所有窗口最小化后，会出现这种情况，但是焦点和前台都不是他，离谱
         qDebug() << "detect CEF, try active taskbar";
         Util::switchToWindow(topLevelHwnd, true); // 只能通过变焦到Taskbar使Element正常检测
         el = std::move(UIAutomation::getElementUnderMouse());
-        qDebug() << (el.getClassName() != "CEF-OSC-WIDGET" ? "successful!" : "failed");
+        cls = el.getClassName();
+        automationId = el.getAutomationId();
+        name = el.getName();
+        qDebug() << (cls != "CEF-OSC-WIDGET" ? "successful!" : "failed");
     }
-    if (el.getClassName() == "Taskbar.TaskListButtonAutomationPeer") {
-        const auto automationId = el.getAutomationId(); // TODO 在副屏 有时候会是"TaskbarFrame"
+    if (cls == "Taskbar.TaskListButtonAutomationPeer") {
+        // TODO 在副屏 有时候会是"TaskbarFrame"
         if (!automationId.startsWith(QStringLiteral("Appid: "))) { // 非预期来源：宁可不动，也不要用被截断的字符串匹配到错误的分组
             qDebug() << "Unexpected AutomationId, skipped:" << automationId;
             return;
         }
         auto appid = automationId.mid(QStringLiteral("Appid: ").size());
-        auto name = el.getName();
         int windows = 0;
         const auto Dash = QStringLiteral(" - ");
         if (auto dashIdx = name.lastIndexOf(Dash); dashIdx != -1) { // "Clash for Windows - 1 个运行窗口"

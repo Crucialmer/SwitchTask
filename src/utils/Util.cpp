@@ -25,17 +25,24 @@
 #include <winrt/Windows.ApplicationModel.h>
 #include <QThread>
 #include <QMutex>
+#include <QCoreApplication>
 #include <QSet>
 #include <QTimer>
 #include <QImage>
+#include <QStringView>
 #include <atomic>
 
 namespace Util {
     QString getWindowTitle(HWND hwnd) {
-        const int len = GetWindowTextLength(hwnd) + 1; // include '\0'
-        if (len <= 1) return {};
-        auto* title = new wchar_t[len];
-        GetWindowText(hwnd, title, len);
+        // 常见标题长度 ≤ 254：走栈缓冲零堆分配（弹窗逐窗口调用）；更长（len==255 可能被截断）走原堆路径
+        wchar_t buffer[256];
+        const int len = GetWindowTextW(hwnd, buffer, 256);
+        if (len < 255)
+            return QString::fromWCharArray(buffer, len);
+        const int fullLen = GetWindowTextLengthW(hwnd) + 1; // include '\0'
+        if (fullLen <= 1) return {};
+        auto* title = new wchar_t[fullLen];
+        GetWindowText(hwnd, title, fullLen);
         QString result = QString::fromWCharArray(title);
         delete[] title;
         return result;
@@ -110,14 +117,21 @@ namespace Util {
             // https://www.cnblogs.com/mooooonlight/p/14491399.html
             if (GetModuleFileNameEx(hProcess, nullptr, processName, MAX_PATH))
                 path = QString::fromWCharArray(processName);
+            else // 失败不留白：空路径的窗口会被调用方丢弃，需有据可查
+                qWarning() << "getProcessPath: GetModuleFileNameEx failed, pid:" << pid << GetLastError();
             CloseHandle(hProcess);
+        } else {
+            qWarning() << "getProcessPath: OpenProcess failed, pid:" << pid << GetLastError();
         }
         return path;
     }
 
     // slow
-    QString getWindowProcessPath(HWND hwnd) {
-        if (AppUtil::isAppFrameWindow(hwnd)) { // AppFrame 用于焦点和窗口操作
+    QString getWindowProcessPath(HWND hwnd, const QString& knownClassName) {
+        const bool isFrame = knownClassName.isEmpty()
+                                 ? AppUtil::isAppFrameWindow(hwnd) // 类名未预先取得：自行查询
+                                 : knownClassName == AppUtil::AppFrameWindowClass; // 枚举已取得类名：免二次查询
+        if (isFrame) { // AppFrame 用于焦点和窗口操作
             if (auto core = AppUtil::getAppCoreWindow(hwnd)) // AppCore 用于获取exe路径
                 hwnd = core;
             // 取不到 Core（如最小化时脱离 Frame）：保留 Frame 句柄兜底，避免窗口因空路径被整窗丢弃
@@ -134,6 +148,7 @@ namespace Util {
     DWORD findProcessByPath(const QString& exePath) {
         DWORD targetPID = 0;
         const QString exeName = QFileInfo(exePath).fileName();
+        const QStringView exeNameView(exeName); // 零分配比较：快照逐条比对不再构造 QString
         // Warning: snapshot是消耗品，不能重复使用
         HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snapshot == INVALID_HANDLE_VALUE) {
@@ -144,7 +159,9 @@ namespace Util {
         if (Process32First(snapshot, &entry)) {
             do {
                 // 先用进程名短路：全系统绝大多数进程名与目标不符，避免逐一 OpenProcess 查询完整路径
-                if (QString::compare(QString::fromWCharArray(entry.szExeFile), exeName, Qt::CaseInsensitive) != 0)
+                const auto entryName = QStringView(reinterpret_cast<const char16_t*>(entry.szExeFile),
+                                                   static_cast<qsizetype>(wcslen(entry.szExeFile)));
+                if (entryName.compare(exeNameView, Qt::CaseInsensitive) != 0)
                     continue;
                 QString processPath = getProcessPath(entry.th32ProcessID);
                 if (QString::compare(processPath, exePath, Qt::CaseInsensitive) == 0) {
@@ -286,7 +303,7 @@ namespace Util {
     /// filter HWND by some rules
     /// @param skipVisibleCheck skip IsWindowVisible check<br>
     /// 在窗口创建过程中，会触发 EVENT_SYSTEM_FOREGROUND，但是这瞬间 IsWindowVisible 为false
-    bool isWindowAcceptable(HWND hwnd, bool skipVisibleCheck, QString* pathOut) {
+    bool isWindowAcceptable(HWND hwnd, bool skipVisibleCheck, QString* pathOut, QString* classOut) {
         static const QStringList BlackList_ClassName = {
             "Progman",
             "Windows.UI.Core.CoreWindow", // 过滤UWP Core，从Frame入手
@@ -316,10 +333,12 @@ namespace Util {
             && !BlackList_ClassName.contains(className)
             && !className.startsWith("imestatuspop_classname{") // 输入法（的推销弹窗）https://s3.bmp.ovh/imgs/2024/12/23/bb136fde101a41ce.png
         ) {
-            auto path = getWindowProcessPath(hwnd); // 耗时操作，减少次数
+            auto path = getWindowProcessPath(hwnd, className); // 耗时操作，减少次数；类名已在上面取得，免二次查询
             if (!BlackList_ExePath.contains(path) && !BlackList_FileName.contains(QFileInfo(path).fileName())) {
                 if (pathOut)
                     *pathOut = path; // 带回路径：调用方（枚举）免去再次查询
+                if (classOut)
+                    *classOut = className; // 带回类名：调用方（枚举）免去再次查询
                 return true;
             }
         }
@@ -331,24 +350,29 @@ namespace Util {
         struct EnumWindowsCtx {
             QList<HWND>* windowList;
             QHash<HWND, QString>* pathMap; // 可空
+            QHash<HWND, QString>* classMap; // 可空
             QString path; // 当前窗口进程路径（回调内临时存放）
+            QString className; // 当前窗口类名（回调内临时存放）
         };
     }
 
     BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
         auto* ctx = reinterpret_cast<EnumWindowsCtx*>(lParam);
         ctx->path.clear();
-        if (isWindowAcceptable(hwnd, false, ctx->pathMap ? &ctx->path : nullptr)) {
+        ctx->className.clear();
+        if (isWindowAcceptable(hwnd, false, ctx->pathMap ? &ctx->path : nullptr, ctx->classMap ? &ctx->className : nullptr)) {
             ctx->windowList->append(hwnd);
             if (ctx->pathMap)
                 ctx->pathMap->insert(hwnd, ctx->path);
+            if (ctx->classMap)
+                ctx->classMap->insert(hwnd, ctx->className);
         }
         return TRUE;
     }
 
-    QList<HWND> enumWindows(QHash<HWND, QString>* pathMap) {
+    QList<HWND> enumWindows(QHash<HWND, QString>* pathMap, QHash<HWND, QString>* classMap) {
         QList<HWND> list;
-        EnumWindowsCtx ctx{&list, pathMap};
+        EnumWindowsCtx ctx{&list, pathMap, classMap};
         // only enum top-level windows
         EnumWindows(EnumWindowsProc, reinterpret_cast<LPARAM>(&ctx));
         return list;
@@ -367,7 +391,7 @@ namespace Util {
     }
 
     // about 2ms
-    QList<HWND> listValidWindows(QHash<HWND, QString>* pathMap) {
+    QList<HWND> listValidWindows(QHash<HWND, QString>* pathMap, QHash<HWND, QString>* classMap) {
         qDebug() << "#List Valid Windows";
         static const bool isUserAdmin = IsUserAnAdmin(); // 和 isProcessElevated(GetCurrentProcess()) 好像没区别？
         // 非管理员模式下逐窗口的“高权限”探测（一次 OpenProcess 链）仅供诊断日志用：默认关闭，
@@ -375,7 +399,9 @@ namespace Util {
         static const bool logElevatedWindows = !isUserAdmin && qEnvironmentVariableIsSet("SWITCHTASK_LOG_ELEVATED");
         using namespace AppUtil;
         QList<HWND> list;
-        const auto winList = Util::enumWindows(pathMap);
+        const auto winList = Util::enumWindows(pathMap, classMap);
+        if (!logElevatedWindows)
+            return winList; // 默认路径直接复用枚举结果（省去诊断用的二次复制；EnumWindows 不会给出空句柄）
         for (auto hwnd: winList) {
             if (!hwnd) continue;
             // 高权限窗口：非管理员运行时也纳入列表（switchToWindow 内置 SetForegroundWindow
@@ -557,6 +583,8 @@ namespace Util {
         QMutex g_iconPrefetchMutex;              // 保护以下两个容器
         QHash<QString, QImage> g_iconImageCache; // 后台提取好的图标图像（GUI 转换后即移除，控制内存）
         QSet<QString> g_iconResolvedPaths;       // GUI 线程已得到最终图标的 path，后台不再提取
+        std::atomic_bool g_prefetchBusy{false};         // 单飞：上一轮预取仍在运行时不重复启动
+        std::atomic_bool g_prefetchShuttingDown{false}; // 退出握手：置位后不再启动新任务、工作循环尽快收尾
 
         /// 供后台线程使用：提取 Jumbo 图标为 QImage（全程不创建 QPixmap/QIcon，线程安全）
         QImage extractJumboIconImage(const QString& filePath) {
@@ -591,6 +619,8 @@ namespace Util {
             QSet<QString> seen;
             QHash<HWND, QString> pathMap; // 枚举时已解析各窗口进程路径
             for (auto hwnd: listValidWindows(&pathMap)) {
+                if (g_prefetchShuttingDown.load())
+                    break; // 退出握手：尽快结束，避免与命名空间静态容器的析构并发
                 const auto path = pathMap.value(hwnd);
                 if (path.isEmpty() || seen.contains(path)) continue;
                 seen.insert(path);
@@ -634,20 +664,39 @@ namespace Util {
         if (started)
             return;
         started = true;
-        static std::atomic_bool busy{false};
+        static QThread* currentThread = nullptr; // 仅 GUI 线程读写
         auto runOnce = [] {
+            if (g_prefetchShuttingDown.load())
+                return; // 已进入退出阶段：不再启动新任务（避免静态缓存析构与后台写并发）
             bool expected = false;
-            if (!busy.compare_exchange_strong(expected, true))
+            if (!g_prefetchBusy.compare_exchange_strong(expected, true))
                 return; // 上一轮仍在运行
             auto* thread = QThread::create([] {
                 prefetchIconsWorker();
-                busy.store(false);
+            });
+            if (!thread) { // 理论不可达：防御性恢复单飞标志，避免永久沉寂
+                g_prefetchBusy.store(false);
+                qWarning() << "QThread::create failed";
+                return;
+            }
+            // 单飞标志复位挂在 finished 上（而非工作体末尾）：任何结束路径都会复位
+            QObject::connect(thread, &QThread::finished, thread, [thread] {
+                g_prefetchBusy.store(false);
+                if (currentThread == thread)
+                    currentThread = nullptr;
             });
             QObject::connect(thread, &QThread::finished, thread, &QThread::deleteLater);
+            currentThread = thread;
             thread->start();
         };
         static QTimer timer;
         QObject::connect(&timer, &QTimer::timeout, runOnce);
+        // 退出握手：等待在途预取结束，避免工作线程与命名空间静态容器的析构并发
+        QObject::connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, QCoreApplication::instance(), [] {
+            g_prefetchShuttingDown.store(true);
+            if (currentThread)
+                currentThread->wait(3000);
+        });
         timer.start(60 * 1000);
         QTimer::singleShot(10 * 1000, runOnce);
         qDebug() << "Icon prefetch scheduled (first in 10s, then every 60s)";
@@ -665,6 +714,7 @@ namespace Util {
         QElapsedTimer t;
         t.start();
         QIcon icon;
+        bool hasIcon = false;
 
         // 1.不太好通过exe是否包含图标判断UWP，因为SystemSettings.exe居然包含图标！
         // 2.AppxManifest.xml 和 exe不一定在同目录，如："MSI Center" "Notepad"，通过`FindPackagesForUser`枚举不太优雅
@@ -672,7 +722,11 @@ namespace Util {
         if (auto uwpDir = getUwpInstallDirFromHwnd(hwnd); !uwpDir.isEmpty()) { // UWP (MS Store App)
             qDebug() << "Detect UWP" << path;
             icon = AppUtil::getAppIcon(uwpDir + "\\fake.exe");
-        } else { // win32 desktop app
+            hasIcon = !icon.isNull();
+            if (!hasIcon) // UWP 图标缺失：回退 win32 图标（原先直接留空，且因被标记“已解决”而永久不再尝试）
+                qWarning() << "#UWP icon unavailable, fallback to win32 icon:" << path;
+        }
+        if (!hasIcon) { // win32 desktop app（或 UWP 图标缺失的回退）
             if (auto img = takePrefetchedIconImage(path); !img.isNull()) { // 后台预取命中：直接转换，零等待
                 icon = QIcon(QPixmap::fromImage(img));
             } else {
@@ -686,7 +740,10 @@ namespace Util {
             }
         }
         IconCache.insert(path, icon);
-        markIconResolved(path); // 已得到最终图标，通知后台预取跳过该 path
+        if (!icon.isNull())
+            markIconResolved(path); // 已得到最终图标，通知后台预取跳过该 path
+        else
+            qWarning() << "#Icon unavailable, will retry on next lookup:" << path; // 不标记已解决：预取/后续查询仍可恢复
         qDebug() << "Icon not found in cache, loaded in" << t.elapsed() << "ms" << path;
         return icon;
     }
@@ -732,6 +789,20 @@ namespace Util {
 
     /// 超椭圆（squircle）路径：连续曲率圆角，macOS 风格方圆角（用于选中底绘制）
     QPainterPath squirclePath(const QRectF& rect, qreal exponent) {
+        // 记忆化：同一弹窗内 rect/exponent 恒定（选中底内缩 1px、悬停底不缩，共两种组合），
+        // 而选中放大动画期间每帧重绘都会调用——缓存最近 3 个参数组合，避免逐帧重算 81 个采样点
+        struct CacheEntry {
+            QRectF rect;
+            qreal exponent = 0;
+            QPainterPath path;
+        };
+        static CacheEntry cache[3];
+        static int nextSlot = 0;
+        for (const auto& entry: cache) {
+            if (entry.exponent == exponent && entry.rect == rect && !entry.path.isEmpty())
+                return entry.path;
+        }
+
         constexpr qreal kPi = 3.14159265358979323846;
         constexpr int stepsPerQuadrant = 20;
         QPainterPath path;
@@ -747,6 +818,12 @@ namespace Util {
             else path.lineTo(p);
         }
         path.closeSubpath();
+
+        auto& slot = cache[nextSlot];
+        nextSlot = (nextSlot + 1) % 3;
+        slot.rect = rect;
+        slot.exponent = exponent;
+        slot.path = path;
         return path;
     }
 
@@ -776,8 +853,11 @@ namespace Util {
     }
 
     bool isTaskbarWindow(HWND hwnd) {
-        auto className = Util::getClassName(hwnd);
-        return className == QStringLiteral("Shell_TrayWnd") || className == QStringLiteral("Shell_SecondaryTrayWnd"); // 副屏
+        // 栈缓冲零分配：本函数在 WH_MOUSE_LL 回调与 50ms 轮询里高频调用（回调内不做任何堆分配）
+        wchar_t className[64];
+        if (!GetClassNameW(hwnd, className, 64))
+            return false;
+        return wcscmp(className, L"Shell_TrayWnd") == 0 || wcscmp(className, L"Shell_SecondaryTrayWnd") == 0; // 副屏
     }
 
     // ----------------- 双击屏蔽（单击即切换后，吞掉双击的第二下） -----------------

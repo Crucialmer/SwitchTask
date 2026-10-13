@@ -70,11 +70,11 @@ int main(int argc, char* argv[]) {
             // 但是此时GetForegroundWindow()还是上个窗口，可能是更新不及时，所以 ^1-1 处的方案不可行
             // 问题不大，本程序hook了Alt+Tab，已经不会出现两次Event了
             winSwitcher->notifyForegroundChanged(hwnd, Widget::WinEvent);
-            auto className = Util::getClassName(hwnd);
             // ForegroundStaging貌似是辅助过渡动画
-            // 检测 Alt 按下，防止误判 Win+Tab (任务视图)
+            // 检测 Alt 按下，防止误判 Win+Tab (任务视图)；类名查询移入条件（短路：仅前两项通过才发起系统调用）
+            QString className;
             if (hwnd == GetForegroundWindow() && Util::isKeyPressed(VK_MENU) &&
-                (className == "ForegroundStaging" /*|| className == "XamlExplorerHostIslandWindow"*/)) { // 任务切换窗口
+                ((className = Util::getClassName(hwnd)) == "ForegroundStaging" /*|| className == "XamlExplorerHostIslandWindow"*/)) { // 任务切换窗口
                 // 顺序是ForegroundStaging -> XamlExplorerHostIslandWindow，不需要都检测，否则会重复
                 // 且：XamlExplorerHostIslandWindow 会导致误检测（某些系统版本，任务栏app窗口>1时，点击窗口）
                 qDebug() << "任务切换 detected!" << className;

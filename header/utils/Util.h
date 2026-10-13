@@ -13,19 +13,21 @@ namespace Util {
     QString getWindowTitle(HWND hwnd);
     QString getClassName(HWND hwnd);
     bool isWindowElevated(HWND hwnd);
-    QString getWindowProcessPath(HWND hwnd);
+    /// @param knownClassName 已知的窗口类名（枚举等场景已取得时传入，省去一次 GetClassName 系统调用）
+    QString getWindowProcessPath(HWND hwnd, const QString& knownClassName = {});
     QList<QString> getChildProcessPaths(const QString& exePath);
     QString getFileDescription(const QString& path);
     bool isTopMost(HWND hwnd);
     void switchToWindow(HWND hwnd, bool force = false);
     void bringWindowToTop(HWND hwnd, HWND hWndInsertAfter = HWND_TOPMOST);
     /// @param pathOut 非空时输出窗口进程路径（枚举等场景已解析过时，调用方免去重复查询）
-    bool isWindowAcceptable(HWND hwnd, bool skipVisibleCheck = false, QString* pathOut = nullptr);
-    /// @param pathMap 非空时填充 [hwnd] = 进程路径（枚举时顺带解析，调用方免去逐窗口重复查询）
-    QList<HWND> enumWindows(QHash<HWND, QString>* pathMap = nullptr);
+    /// @param classOut 非空时输出窗口类名（枚举时已取得，调用方免去再次查询）
+    bool isWindowAcceptable(HWND hwnd, bool skipVisibleCheck = false, QString* pathOut = nullptr, QString* classOut = nullptr);
+    /// @param pathMap 非空时填充 [hwnd] = 进程路径；@param classMap 非空时填充 [hwnd] = 类名（枚举时顺带取得）
+    QList<HWND> enumWindows(QHash<HWND, QString>* pathMap = nullptr, QHash<HWND, QString>* classMap = nullptr);
     QList<HWND> enumChildWindows(HWND hwnd);
-    /// @param pathMap 非空时填充 [hwnd] = 进程路径（同上）
-    QList<HWND> listValidWindows(QHash<HWND, QString>* pathMap = nullptr);
+    /// @param pathMap 非空时填充 [hwnd] = 进程路径；@param classMap 非空时填充 [hwnd] = 类名（同上）
+    QList<HWND> listValidWindows(QHash<HWND, QString>* pathMap = nullptr, QHash<HWND, QString>* classMap = nullptr);
     QList<HWND> listValidWindows(const QString& exePath);
     QList<HWND> findTopWindows(const QString& className, const QString& title = QString());
     QIcon getJumboIcon(const QString& filePath);

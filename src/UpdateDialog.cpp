@@ -12,6 +12,7 @@
 #include <QDesktopServices>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QDir>
 #include <QFileInfo>
 #include "utils/SystemTray.h"
 #include "utils/Theme.h"
@@ -43,8 +44,19 @@ static bool extractZipTo(const QString& zipPath, const QString& destDir) {
         return false;
     }
     int files = 0;
+    const auto destRoot = QDir(destDir).absolutePath();
     for (const auto& fi: infos) {
-        const auto dest = QDir(destDir).absoluteFilePath(fi.filePath);
+        // zip-slip 防护：拒绝绝对路径与越界条目（本仓库发布包均为相对路径；上游失陷时把写面限制在目标目录内）
+        const auto cleanRel = QDir::cleanPath(fi.filePath);
+        if (QDir::isAbsolutePath(fi.filePath) || cleanRel.startsWith(QStringLiteral("..")) || cleanRel.contains(':')) {
+            qWarning() << "#extractZipTo: unsafe entry rejected:" << fi.filePath;
+            return false;
+        }
+        const auto dest = QDir(destRoot).absoluteFilePath(cleanRel);
+        if (!dest.startsWith(destRoot + '/')) { // 双保险：规范化后仍须落在目标目录内
+            qWarning() << "#extractZipTo: dest escapes target dir:" << dest;
+            return false;
+        }
         if (fi.isDir) {
             if (!QDir().mkpath(dest)) {
                 qWarning() << "#extractZipTo: mkpath failed:" << dest;
@@ -57,8 +69,8 @@ static bool extractZipTo(const QString& zipPath, const QString& destDir) {
             return false;
         }
         const auto data = reader.fileData(fi.filePath);
-        if (fi.size > 0 && data.isEmpty()) {
-            qWarning() << "#extractZipTo: read entry failed:" << fi.filePath;
+        if (data.size() != fi.size) { // 解压后长度必须与条目声明一致（损坏/截断即失败）
+            qWarning() << "#extractZipTo: entry size mismatch:" << fi.filePath << data.size() << fi.size;
             return false;
         }
         QFile out(dest);
@@ -81,6 +93,7 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
     manager.setTransferTimeout(10000); // 10s -> Operation canceled
     ui->progressBar->hide();
     applyTheme(); // 更新说明区配色跟随深浅色模式
+    ui->btn_update->setEnabled(false); // 首次 fetch 结果返回前不允许点击（避免误导性的“无可下载资产”报错）
     connect(ui->btn_recheck, &QPushButton::clicked, this, &UpdateDialog::fetchGithubReleaseInfo);
     connect(ui->btn_update, &QPushButton::clicked, this, [this] {
         auto url = relInfo.downloadUrl;
@@ -111,7 +124,11 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
                 }
                 qDebug() << "release extract dir:" << relDir.absolutePath();
                 const auto batPath = writeBat(relDir.absolutePath(), qApp->applicationDirPath());
-                QDesktopServices::openUrl(QUrl::fromLocalFile(batPath));
+                if (batPath.isEmpty() || !QDesktopServices::openUrl(QUrl::fromLocalFile(batPath))) {
+                    qWarning() << "#Failed to start updater bat:" << batPath;
+                    ui->textBrowser->setMarkdown("## Failed to start updater❎\nSee log for details");
+                    return; // 不退出：更新未发生，保留当前会话与重试机会
+                }
                 qApp->quit(); //
             } else {
                 qWarning() << "Extract failed" << filePath;
@@ -154,6 +171,9 @@ void UpdateDialog::fetchGithubReleaseInfo() {
             qWarning() << "Failed to fetch update info" << reply->errorString();
             ui->textBrowser->setMarkdown("## Failed to fetch update info❎\n" + reply->errorString());
             sysTray.showMessage("Failed to fetch update info", reply->errorString());
+            ui->btn_update->setEnabled(false); // 失败态：按钮与下载地址一并复位，避免仍指向上次成功获取的旧版本
+            relInfo.downloadUrl.clear();
+            relInfo.digest.clear();
             return;
         }
         lastFetchMs = QDateTime::currentMSecsSinceEpoch(); // 网络成功才计入节流窗口（失败可立即重试）
@@ -168,6 +188,8 @@ void UpdateDialog::fetchGithubReleaseInfo() {
             qWarning() << "Cannot parse release tag:" << obj["tag_name"].toString();
             ui->textBrowser->setMarkdown("## Cannot parse release tag❎\n" + obj["tag_name"].toString());
             ui->btn_update->setEnabled(false);
+            relInfo.downloadUrl.clear(); // 同上：失败态不得残留可下载地址
+            relInfo.digest.clear();
             return;
         }
 
@@ -196,7 +218,8 @@ void UpdateDialog::fetchGithubReleaseInfo() {
         bool needUpdate = relInfo.ver > version;
         // 如果要支持网络图片，必须重写`QTextBrowser::loadResource`，默认是作为本地文件处理
         ui->textBrowser->setMarkdown(needUpdate ? relInfo.description : "# ✅Everything is up-to-date");
-        ui->btn_update->setEnabled(needUpdate);
+        // 下载进行中不得重新点亮 Update（否则可二进下载流程、覆盖共享状态）
+        ui->btn_update->setEnabled(needUpdate && !downloadStatus.reply);
     });
 }
 
@@ -206,6 +229,8 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     auto* reply = manager.get(request);
     downloadStatus.blocked = false;
+    downloadStatus.digest = relInfo.digest; // 快照：下载期间即使发生重新检查更新，也按本次下载对应的资产摘要校验
+    ui->btn_recheck->setEnabled(false); // 下载期间禁止“检查更新”重入（避免覆盖下载状态/共享槽位）
     // 重定向逐跳校验：仅放行 GitHub 及其资源 CDN（发布资产正常 302 到 *.githubusercontent.com）
     connect(reply, &QNetworkReply::redirected, this, [this, reply](const QUrl& redirectUrl) {
         if (!isAllowedGithubUrl(redirectUrl)) {
@@ -249,6 +274,7 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
         downloadStatus.file.close(); // close才刷新缓冲区，写入磁盘，所以必须在解压之前！不然解压概率性失败...(QZip: EndOfDirectory not found)
         ui->progressBar->hide();
         ui->btn_update->setEnabled(true);
+        ui->btn_recheck->setEnabled(true); // 下载结束：恢复“检查更新”
         // 成功判定以 finished 时的错误码与 HTTP 状态码为准，而非 downloadProgress 的 bytesReceived == bytesTotal
         // （Content-Length 缺失时 bytesTotal 恒为 -1，条件永不成立或意外成立均不可靠）
         if (downloadStatus.blocked) { // 重定向被白名单拦截（abort 触发 finished）：给出准确报错
@@ -262,7 +288,7 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
             sysTray.showMessage("Download failed", reply->errorString());
         } else {
             // sha256 校验（有则校验：GitHub API 对新版资产提供 `sha256:` digest；旧资产可能为空则跳过）
-            if (relInfo.digest.startsWith(QStringLiteral("sha256:"))) {
+            if (downloadStatus.digest.startsWith(QStringLiteral("sha256:"))) {
                 QFile verifyFile(downloadStatus.file.fileName());
                 QString actual;
                 if (verifyFile.open(QIODevice::ReadOnly)) {
@@ -271,15 +297,15 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
                         actual = QStringLiteral("sha256:") + QString::fromLatin1(hash.result().toHex());
                     verifyFile.close();
                 }
-                if (actual.compare(relInfo.digest, Qt::CaseInsensitive) != 0) {
-                    qWarning() << "#Hash mismatch:" << actual << relInfo.digest;
+                if (actual.compare(downloadStatus.digest, Qt::CaseInsensitive) != 0) {
+                    qWarning() << "#Hash mismatch:" << actual << downloadStatus.digest;
                     ui->textBrowser->setMarkdown("## Download corrupted❎\nsha256 mismatch");
                     QFile::remove(downloadStatus.file.fileName());
                     return;
                 }
                 qDebug() << "#Hash verified" << actual;
-            } else if (!relInfo.digest.isEmpty()) {
-                qWarning() << "#Unknown digest format, skipped:" << relInfo.digest;
+            } else if (!downloadStatus.digest.isEmpty()) {
+                qWarning() << "#Unknown digest format, skipped:" << downloadStatus.digest;
             }
             ui->textBrowser->setMarkdown("## Download success✅");
             sysTray.showMessage("Download Status", "Success!");
@@ -301,6 +327,8 @@ QString UpdateDialog::writeBat(const QString& sourceDir, const QString& targetDi
     bat += "@cd /d \"%~dp0\"\r\n"; //切换到bat目录，否则为qt的exe目录
     bat += "@echo ##Copying files, please wait......\r\n";
     bat += QString("xcopy \"%~dp0%1\" \"%~dp0%2\" /E /H /Y\r\n").arg(relSource, relTarget);
+    // xcopy 失败（返回码 >=1）时中止：不删除更新素材（zip/_extract 保留供重试）、不重启应用
+    bat += "@if errorlevel 1 goto :copyFailed\r\n";
     bat += "@echo -------------------------------------------------------\r\n";
     bat += "@echo ##Update SUCCESSFUL(Maybe)\r\n";
     bat += "@echo -------------------------------------------------------\r\n";
@@ -309,13 +337,21 @@ QString UpdateDialog::writeBat(const QString& sourceDir, const QString& targetDi
     bat += QString("@rd /S /Q \"%~dp0%1\"\r\n").arg(archive.extractDir);
     bat += QString("@start \"\" \"%~dp0%1\" --verify-update \"%2->%3\"\r\n").arg(QFileInfo(qApp->applicationFilePath()).fileName(),
                                                                                  version.toString(), relInfo.ver.toString());
-    bat += "@del \"%~f0\"";
+    bat += "@del \"%~f0\" & exit /b 0\r\n"; // 自删与退出合并为一行：文件删除后不再需要读取后续行
+    bat += ":copyFailed\r\n";
+    bat += "@echo ##Copy FAILED - update aborted. Update files kept for retry.\r\n";
+    bat += "@timeout /t 5 /NOBREAK\r\n";
     QFile file(appDir + "/copy.bat");
-    if (file.open(QFile::WriteOnly)) {
-        const QByteArray batData = bat.toLocal8Bit(); // 系统代码页（中文=GBK），cmd 按此解析
-        if (file.write(batData) != batData.size())
-            qWarning() << "Failed to write bat file:" << file.fileName();
+    if (!file.open(QFile::WriteOnly)) {
+        qWarning() << "Failed to open bat for writing:" << file.fileName();
+        return {};
     }
+    const QByteArray batData = bat.toLocal8Bit(); // 系统代码页（中文=GBK），cmd 按此解析
+    if (file.write(batData) != batData.size()) {
+        qWarning() << "Failed to write bat file:" << file.fileName();
+        return {};
+    }
+    file.close();
     return file.fileName();
 }
 
@@ -371,7 +407,7 @@ void UpdateDialog::showEvent(QShowEvent*) {
     // 「Check again」按钮不受限（直接调用 fetch，保留强制刷新路径）
     constexpr qint64 CacheMs = 10 * 60 * 1000;
     const auto now = QDateTime::currentMSecsSinceEpoch();
-    if (lastFetchMs != 0 && now - lastFetchMs < CacheMs)
+    if (lastFetchMs != 0 && now >= lastFetchMs && now - lastFetchMs < CacheMs) // now>=lastFetch 防时钟回拨把窗口无限拉长
         qDebug() << "#Skip fetch (cached), age(ms):" << (now - lastFetchMs);
     else
         fetchGithubReleaseInfo();
@@ -381,8 +417,7 @@ void UpdateDialog::showEvent(QShowEvent*) {
 void UpdateDialog::applyTheme() {
     ui->textBrowser->setStyleSheet(QStringLiteral(
         "QTextBrowser { font: 10pt \"微软雅黑\"; padding: 5px; border-radius: 5px; background-color: %1; }")
-        .arg(Theme::isDark() ? QStringLiteral("#2D2D2D") : QStringLiteral("#F6F6F6")));
+        .arg(Theme::dialogSurface().name()));
     // 「Current Version」次级文字随主题（原 .ui 固定 #7A7A7A，深色下偏暗；浅色保持原值不变）
-    ui->label_ver->setStyleSheet(QStringLiteral("color: %1;")
-        .arg(Theme::isDark() ? QStringLiteral("#9E9E9E") : QStringLiteral("#7A7A7A")));
+    ui->label_ver->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::dialogSecondaryText().name()));
 }

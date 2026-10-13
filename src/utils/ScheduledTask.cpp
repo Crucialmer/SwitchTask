@@ -183,7 +183,7 @@ bool ScheduledTask::queryTask(const QString& taskName) {
     qDebug() << "queryTask exePath:" << exePath;
 
     static const QString AppPath = QDir::toNativeSeparators(qApp->applicationFilePath()); // IMPORTANT
-    if (exePath != AppPath) {
+    if (exePath.compare(AppPath, Qt::CaseInsensitive) != 0) { // 路径比较与注册表侧一致：大小写不敏感
         qWarning() << "Task exists, but exePath mismatch:" << exePath << AppPath;
         return false;
     }

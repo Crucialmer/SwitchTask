@@ -57,6 +57,8 @@ public:
     Q_INVOKABLE bool requestShow();
     Q_INVOKABLE void requestShowPinned(); // Ctrl+Alt+Tab：松开按键后保持显示，Enter/点击确认，Esc 取消
     void notifyForegroundChanged(HWND hwnd, ForegroundChangeSource source);
+    /// 已知进程路径的捷径（如弹窗条目自带的 exePath）：跳过滤镜与路径查询，直接记录（条目已通过枚举过滤）
+    void notifyForegroundChanged(HWND hwnd, const QString& knownPath, ForegroundChangeSource source);
 
     HWND hWnd() { return (HWND) winId(); }
 

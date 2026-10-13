@@ -69,7 +69,7 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     // 本来为了去除图标选中变色样式，可以对Icon手动addPixmap(..., QIcon::Selected) or (& ~Qt::ItemIsSelectable)
     // 但是采用delegate后，就没必要了
     // will not take ownership of delegate
-    iconDelegate = new IconOnlyDelegate(lw);
+    iconDelegate = new IconOnlyDelegate(lw, Theme::selectionFill(), Theme::hoverFill(), Theme::ringColor());
     lw->setItemDelegate(iconDelegate);
 
     // macOS 风格：选中项放大动效（0→1，约 110ms，OutCubic）——由选中变化与弹窗显示触发；
@@ -351,10 +351,22 @@ void Widget::notifyForegroundChanged(HWND hwnd, ForegroundChangeSource source) {
             << Util::getWindowTitle(hwnd) << Util::getClassName(hwnd) << path;
 } // TODO 控制面板 和 资源管理器 exe是同一个，如何区分图标
 
+/// 通知前台窗口变化（已知进程路径的捷径）：跳过滤镜与进程路径查询——调用点（弹窗条目）已在枚举时过滤并解析过
+void Widget::notifyForegroundChanged(HWND hwnd, const QString& knownPath, ForegroundChangeSource source) {
+    if (hwnd == this->hWnd()) return;
+    if (knownPath.isEmpty()) return; // 与滤镜“空路径窗口不入列表”的语义一致
+    winActiveOrder[knownPath].insert(hwnd, QDateTime::currentDateTime());
+
+    auto sourceStr = QMetaEnum::fromType<ForegroundChangeSource>().valueToKey(source);
+    qDebug() << qUtf8Printable(QString("*ForeWin changed (%1):").arg(sourceStr))
+            << Util::getWindowTitle(hwnd) << Util::getClassName(hwnd) << knownPath;
+}
+
 /// collect, filter, sort Windows for presentation（每个窗口独立一项，按各自最近活跃排序）
 QList<WindowInfo> Widget::prepareWindowList() {
     QHash<HWND, QString> pathMap; // 枚举时顺带解析进程路径（单趟完成，避免逐窗口重复查询）
-    const auto list = Util::listValidWindows(&pathMap);
+    QHash<HWND, QString> classMap; // 枚举时顺带带回类名（省去逐窗口再次 GetClassName）
+    const auto list = Util::listValidWindows(&pathMap, &classMap);
     QSet<HWND> validHwnds(list.begin(), list.end());
     // 清理 winActiveOrder 中已失效的 HWND（防无限增长与句柄复用错乱），顺带构建 winOrder（同一趟完成）
     QHash<HWND, QDateTime> winOrder;
@@ -379,7 +391,7 @@ QList<WindowInfo> Widget::prepareWindowList() {
         if (hwnd == this->hWnd()) continue; // skip self
         const auto path = pathMap.value(hwnd); // 路径已在枚举（过滤）时解析，不再重复查询
         if (path.isEmpty()) continue; // TODO 可能需要管理员权限
-        winList.append({Util::getWindowTitle(hwnd), Util::getClassName(hwnd), hwnd, path});
+        winList.append({Util::getWindowTitle(hwnd), classMap.value(hwnd), hwnd, path});
     }
 
     // 按窗口自身最近活跃时间排序（最新在前；无记录者排后，保持枚举序）
@@ -707,7 +719,7 @@ bool Widget::eventFilter(QObject* watched, QEvent* event) {
             bool isRollUp = wheelEvent->angleDelta().x() > 0; // ListWidget的方向改成了从左到右，所以滚轮方向从y()变成x()了；伪造的 keyPress 事件（keyPressEvent 的 Up/Down 分支）同样使用 x 分量，与真实滚轮保持一致
             if (isRollUp) {
                 Util::bringWindowToTop(info.hwnd, this->hWnd()); // without activate
-                notifyForegroundChanged(info.hwnd, Inner); // 记录为最近使用（与旧滚轮行为一致）
+                notifyForegroundChanged(info.hwnd, info.exePath, Inner); // 记录为最近使用（与旧滚轮行为一致；路径取自条目，免二次查询）
             } else if (!IsIconic(info.hwnd)) {
                 ShowWindow(info.hwnd, SW_SHOWMINNOACTIVE); // minimize
             }

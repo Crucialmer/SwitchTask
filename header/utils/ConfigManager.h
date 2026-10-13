@@ -21,7 +21,6 @@ enum ThemeMode {
     ThemeAuto, // 0 跟随系统深浅色（默认）
     ThemeLight, // 1 强制浅色
     ThemeDark, // 2 强制深色
-    ThemeEnumCount // Just for count
 };
 
 class ConfigManager : public ConfigManagerBase {

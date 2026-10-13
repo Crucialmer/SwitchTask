@@ -16,10 +16,9 @@ class IconOnlyDelegate : public QStyledItemDelegate {
                                // 即使动画因环境原因未执行，选中项也保持放大视觉（不依赖动画完成）
 
 public:
-    explicit IconOnlyDelegate(QObject* parent = nullptr,
-                              QColor selectedColor = QColor(162, 210, 255, 225), // 选中：马卡龙·婴儿蓝 #A2D2FF（高不透明度，明/暗底色上均清晰）
-                              QColor hoverColor = QColor(255, 255, 255, 36),     // 悬停：轻白光晕（与选中态层级分明）
-                              QColor ringColor = QColor(255, 255, 255, 140))     // 选中描边：细化边界增强对比
+    /// 三个颜色为必填：唯一真源是 Theme（构造点直接传 Theme::selectionFill()/hoverFill()/ringColor()；
+    /// 不再提供默认实参——默认值若与 Theme 漂移会形成第二来源，且实际从未生效过（applyTheme 随即覆盖））
+    explicit IconOnlyDelegate(QObject* parent, QColor selectedColor, QColor hoverColor, QColor ringColor)
         : QStyledItemDelegate(parent), selectedColor(selectedColor), hoverColor(hoverColor),
           ringColor(ringColor) {}
 

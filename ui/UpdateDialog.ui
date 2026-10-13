@@ -21,7 +21,6 @@
     <widget class="QLabel" name="label_newVer">
      <property name="font">
       <font>
-       <family>Adobe Heiti Std</family>
        <pointsize>12</pointsize>
       </font>
      </property>
@@ -34,7 +33,6 @@
     <widget class="QLabel" name="label_ver">
      <property name="font">
       <font>
-       <family>Adobe Heiti Std</family>
        <pointsize>10</pointsize>
       </font>
      </property>
