@@ -31,7 +31,9 @@ namespace Theme {
     }
 
     // ---------- 切换器弹窗（Widget 面板）配色 ----------
-    inline QColor panelFill() { return isDark() ? QColor(25, 25, 25, 100) : QColor(247, 247, 247, 190); }
+    // 浅色填充取近乎不透明：半透明浅色在部分合成环境（透明窗口叠黑底）下会被压成脏灰，
+    // 近乎不透明可保证面板在任何壁纸/窗口背景上都呈现干净浅色（深色态保持原有通透观感）
+    inline QColor panelFill() { return isDark() ? QColor(25, 25, 25, 100) : QColor(251, 251, 251, 252); }
     inline QColor panelStroke() { return isDark() ? QColor(255, 255, 255, 36) : QColor(0, 0, 0, 26); }
     inline QColor labelColor() { return isDark() ? QColor(240, 240, 240) : QColor(34, 34, 34); }
     inline QColor hoverFill() { return isDark() ? QColor(255, 255, 255, 36) : QColor(0, 0, 0, 18); }
@@ -45,7 +47,7 @@ namespace Theme {
     inline QString menuStyleSheet() {
         const bool dark = isDark();
         auto css = [](const QColor& c) { return c.name(QColor::HexArgb); };
-        const QColor bg = dark ? QColor(40, 40, 40, 236) : QColor(250, 250, 250, 244);
+        const QColor bg = dark ? QColor(40, 40, 40, 236) : QColor(251, 251, 251, 250);
         const QColor border = dark ? QColor(255, 255, 255, 34) : QColor(0, 0, 0, 26);
         const QColor text = dark ? QColor(238, 238, 238) : QColor(40, 40, 40);
         const QColor disabled = dark ? QColor(255, 255, 255, 84) : QColor(0, 0, 0, 80);
