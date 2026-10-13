@@ -23,7 +23,13 @@ jobs:
           $m = Select-String -Path CMakeLists.txt -Pattern 'SwitchTask VERSION ([0-9][0-9.]*)'
           if (-not $m) { throw "Cannot parse project VERSION from CMakeLists.txt" }
           $ver = $m.Matches[0].Groups[1].Value
-          if ("v$ver" -ne $tag) { throw "Tag $tag does not match CMake version v$ver" }
+          # 归一化比较：去前缀 v、按组件去尾随 .0（保留至少两位）——支持 tag v1.0 与 CMake 1.0.0 等价
+          function Get-Norm([string]$s) {
+            $s = $s.TrimStart('v')
+            while (($s.Split('.').Count -gt 2) -and $s.EndsWith('.0')) { $s = $s.Substring(0, $s.Length - 2) }
+            return $s
+          }
+          if ((Get-Norm $tag) -ne (Get-Norm $ver)) { throw "Tag $tag does not match CMake version v$ver" }
           Write-Host "Tag matches CMake version: $tag"
 
       - name: Setup MSVC
