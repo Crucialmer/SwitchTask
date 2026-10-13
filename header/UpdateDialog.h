@@ -48,10 +48,12 @@ private:
         QVersionNumber ver;
         QString description;
         QString downloadUrl;
+        QString digest; // 资产 sha256（API 提供时用于下载后校验；旧资产可能为空）
         QString publishTime;
     } relInfo;
 
     struct {
+        bool blocked = false; // 重定向到非白名单主机（abort 后 finished 里给出准确报错）
         QNetworkReply* reply = nullptr;
         QFile file;
     } downloadStatus;
@@ -60,6 +62,8 @@ private:
         QString fileName;
         const QString extractDir = "_extract";
     } archive;
+
+    qint64 lastFetchMs = 0; // 更新信息节流：上次成功获取的时间戳（毫秒）
 };
 
 

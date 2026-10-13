@@ -64,6 +64,7 @@ QString ScheduledTask::createTaskXml(const QString& exePath, const QString& desc
     <Triggers>
           <LogonTrigger>
                 <Enabled>true</Enabled>
+                <UserId>%4</UserId>
           </LogonTrigger>
     </Triggers>
     <Principals>

@@ -12,7 +12,7 @@
 namespace Theme {
     /// 当前生效的深色与否（配置优先，其次系统）
     inline bool isDark() {
-        switch (cfg.getThemeMode()) {
+        switch (CFG.getThemeMode()) {
             case ThemeLight: return false;
             case ThemeDark: return true;
             default: break;
@@ -23,7 +23,7 @@ namespace Theme {
     /// 把配置中的强制模式同步给 Qt（影响原生控件的配色）；auto 时交还给系统
     inline void applyConfiguredScheme() {
         auto* hints = QGuiApplication::styleHints();
-        switch (cfg.getThemeMode()) {
+        switch (CFG.getThemeMode()) {
             case ThemeLight: hints->setColorScheme(Qt::ColorScheme::Light); break;
             case ThemeDark: hints->setColorScheme(Qt::ColorScheme::Dark); break;
             default: hints->setColorScheme(Qt::ColorScheme::Unknown); break; // 跟随系统

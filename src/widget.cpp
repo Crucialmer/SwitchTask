@@ -96,7 +96,7 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
         applyTheme(); // 系统深浅色切换时即时刷新（弹窗保持可见时也立即生效）
     });
-    connect(&cfg, &ConfigManager::configEdited, this, [this] {
+    connect(&CFG, &ConfigManager::configEdited, this, [this] {
         // 强制模式同步（applyConfiguredScheme）由 SystemTray 的 configEdited 处理器统一负责
         // （其连接先于本处注册、同一事件内先行执行）；此处只应用配色——applyTheme 读取的
         // isDark() 直接取配置，不依赖 Qt 侧调色板，因此与调用顺序无关
@@ -254,14 +254,14 @@ void Widget::setupLabelFont() {
     static auto reloadLabelFontCfg = [this] {
         const QStringList Fonts = {"Microsoft YaHei UI", "Microsoft YaHei", "Consolas"}; // fallback
         auto labelFont = ui->label->font();
-        auto fontSize = cfg.get("label/font_size", 10).toDouble(); // 支持小数，如 10.5（100% 缩放下即 14px）
+        auto fontSize = CFG.get("label/font_size", 10).toDouble(); // 支持小数，如 10.5（100% 缩放下即 14px）
         if (fontSize <= 0)
             fontSize = 10; // 防呆：非法值回退默认
         labelFont.setPointSizeF(fontSize);
-        auto defaultFF = QStringList{cfg.get("label/font_family", Fonts[0]).toString()};
+        auto defaultFF = QStringList{CFG.get("label/font_family", Fonts[0]).toString()};
         labelFont.setFamilies(defaultFF << Fonts.mid(1));
         // font_weight 可选：数字(100~900，400=常规 500=中等 600=半粗 700=粗体) 或 bold/normal；不写=默认粗体(bold)
-        const auto weightCfg = cfg.get("label/font_weight", "bold").toString().trimmed().toLower();
+        const auto weightCfg = CFG.get("label/font_weight", "bold").toString().trimmed().toLower();
         int weight = 700; // 默认加粗（bold）
         if (!weightCfg.isEmpty()) {
             weight = -1;
@@ -288,7 +288,7 @@ void Widget::setupLabelFont() {
     reloadLabelFontCfg();
 
     // auto reload
-    connect(&cfg, &ConfigManager::configEdited, this, [] {
+    connect(&CFG, &ConfigManager::configEdited, this, [] {
         reloadLabelFontCfg();
     });
 }
@@ -400,7 +400,7 @@ bool Widget::prepareListWidget() {
     auto winList = prepareWindowList();
 
     // get screen（窗口定位与自适应都需要，提前获取）
-    bool displayOnPrimary = (cfg.getDisplayMonitor() == PrimaryMonitor);
+    bool displayOnPrimary = (CFG.getDisplayMonitor() == PrimaryMonitor);
     auto screen = displayOnPrimary ?
                   QGuiApplication::primaryScreen() :
                   QGuiApplication::screenAt(QCursor::pos()); // multi-screen support

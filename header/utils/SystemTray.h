@@ -59,9 +59,9 @@ private:
         });
 
         connect(act_settings, &QAction::triggered, this, [] {
-            cfg.editConfigFile();
+            CFG.editConfigFile();
         });
-        connect(&cfg, &ConfigManager::configEdited, this, [this] {
+        connect(&CFG, &ConfigManager::configEdited, this, [this] {
             this->showMessage("Config Edited", "auto reloaded");
         });
 
@@ -102,12 +102,12 @@ private:
             connect(menu_monitor, &QMenu::aboutToShow, this, [monitorGroup] {
                 qDebug() << "menu_monitor aboutToShow";
                 const auto actions = monitorGroup->actions();
-                actions[cfg.getDisplayMonitor()]->setChecked(true);
+                actions[CFG.getDisplayMonitor()]->setChecked(true);
             });
 
             connect(monitorGroup, &QActionGroup::triggered, this, [this](QAction* act) {
                 auto monitor = static_cast<DisplayMonitor>(act->data().toInt());
-                cfg.setDisplayMonitor(monitor);
+                CFG.setDisplayMonitor(monitor);
                 this->showMessage("Display Monitor Changed", act->text());
             });
         }
@@ -136,7 +136,7 @@ private:
         connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
             applyMenuTheme();
         });
-        connect(&cfg, &ConfigManager::configEdited, this, [this] {
+        connect(&CFG, &ConfigManager::configEdited, this, [this] {
             Theme::applyConfiguredScheme();
             applyMenuTheme();
         });

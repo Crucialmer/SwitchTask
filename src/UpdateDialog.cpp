@@ -10,9 +10,21 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QDesktopServices>
+#include <QCryptographicHash>
+#include <QDateTime>
 #include "utils/SystemTray.h"
 #include "utils/Theme.h"
 #include "QtCore/private/qzipreader_p.h"
+
+/// 更新链路白名单：仅放行 https + GitHub 及其资源 CDN 主机（防重定向到任意站点）
+static bool isAllowedGithubUrl(const QUrl& url) {
+    if (url.scheme() != QStringLiteral("https"))
+        return false;
+    const auto host = url.host();
+    return host == QStringLiteral("github.com")
+           || host == QStringLiteral("api.github.com")
+           || host.endsWith(QStringLiteral(".githubusercontent.com"));
+}
 
 UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::UpdateDialog) {
     ui->setupUi(this);
@@ -28,6 +40,13 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
         auto url = relInfo.downloadUrl;
         if (url.isEmpty()) { // 防御：Release 未提供可下载资产时不得进入下载流程（原先会拼出目录路径并以难懂的报错收场）
             ui->textBrowser->setMarkdown("## Failed❎\nNo downloadable asset in this release");
+            return;
+        }
+        // 下载源白名单：必须是本仓库 releases/download 路径（防 API 响应被替换后指向他处）
+        const auto expectedPrefix = QStringLiteral("https://github.com/%1/%2/releases/download/").arg(Owner, Repo);
+        if (!url.startsWith(expectedPrefix)) {
+            qWarning() << "#Download blocked, unexpected URL:" << url;
+            ui->textBrowser->setMarkdown("## Download blocked❎\nUnexpected download URL");
             return;
         }
         ui->btn_update->setEnabled(false);
@@ -79,6 +98,13 @@ void UpdateDialog::fetchGithubReleaseInfo() {
     QNetworkRequest request(ApiUrl);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     auto* reply = manager.get(request);
+    // 重定向逐跳校验（与下载同一白名单；api.github.com 正常不重定向，属防御）
+    connect(reply, &QNetworkReply::redirected, this, [reply](const QUrl& redirectUrl) {
+        if (!isAllowedGithubUrl(redirectUrl)) {
+            qWarning() << "#Fetch redirect to disallowed host:" << redirectUrl.toString();
+            reply->abort();
+        }
+    });
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
@@ -87,6 +113,7 @@ void UpdateDialog::fetchGithubReleaseInfo() {
             sysTray.showMessage("Failed to fetch update info", reply->errorString());
             return;
         }
+        lastFetchMs = QDateTime::currentMSecsSinceEpoch(); // 网络成功才计入节流窗口（失败可立即重试）
         const auto data = reply->readAll();
         const QJsonDocument doc = QJsonDocument::fromJson(data);
         const auto obj = doc.object();
@@ -102,17 +129,21 @@ void UpdateDialog::fetchGithubReleaseInfo() {
         }
 
         relInfo.downloadUrl.clear(); // 无条件清空：assets 缺失时也不得残留上次请求的下载地址（否则可能误下载旧版本）
+        relInfo.digest.clear();
         if (const auto assets = obj["assets"].toArray(); !assets.isEmpty()) {
             // 筛选 zip asset，避免取到非压缩包或顺序不确定导致错误下载
             for (const auto& asset: assets) {
                 const auto name = asset.toObject()["name"].toString();
                 if (name.endsWith(".zip", Qt::CaseInsensitive)) {
                     relInfo.downloadUrl = asset.toObject()["browser_download_url"].toString();
+                    relInfo.digest = asset.toObject()["digest"].toString(); // 可能为空（旧资产）：有则校验、无则跳过
                     break;
                 }
             }
-            if (relInfo.downloadUrl.isEmpty()) // fallback 到第一个 asset（保持原行为）
+            if (relInfo.downloadUrl.isEmpty()) { // fallback 到第一个 asset（保持原行为）
                 relInfo.downloadUrl = assets.first().toObject()["browser_download_url"].toString();
+                relInfo.digest = assets.first().toObject()["digest"].toString();
+            }
         }
 
         qDebug() << "Update info fetched" << relInfo.ver << relInfo.downloadUrl;
@@ -128,9 +159,18 @@ void UpdateDialog::fetchGithubReleaseInfo() {
 
 void UpdateDialog::download(const QString& url, const QString& savePath) {
     QNetworkRequest request(url);
-    // 限制只允许 https，避免重定向到 http 或恶意站点
+    // 限制只允许 https，避免重定向到 http（逐跳主机白名单见 redirected 连接）
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     auto* reply = manager.get(request);
+    downloadStatus.blocked = false;
+    // 重定向逐跳校验：仅放行 GitHub 及其资源 CDN（发布资产正常 302 到 *.githubusercontent.com）
+    connect(reply, &QNetworkReply::redirected, this, [this, reply](const QUrl& redirectUrl) {
+        if (!isAllowedGithubUrl(redirectUrl)) {
+            qWarning() << "#Download redirect to disallowed host:" << redirectUrl.toString();
+            downloadStatus.blocked = true;
+            reply->abort();
+        }
+    });
     ui->progressBar->show();
     ui->progressBar->setValue(0);
     ui->progressBar->setMaximum(0); // unknown size
@@ -168,12 +208,36 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
         ui->btn_update->setEnabled(true);
         // 成功判定以 finished 时的错误码与 HTTP 状态码为准，而非 downloadProgress 的 bytesReceived == bytesTotal
         // （Content-Length 缺失时 bytesTotal 恒为 -1，条件永不成立或意外成立均不可靠）
+        if (downloadStatus.blocked) { // 重定向被白名单拦截（abort 触发 finished）：给出准确报错
+            ui->textBrowser->setMarkdown("## Download blocked❎\nRedirect to disallowed host");
+            return;
+        }
         const auto httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() != QNetworkReply::NoError || (httpStatus != 0 && httpStatus != 200)) {
             qWarning() << "Download failed" << reply->errorString() << httpStatus;
             ui->textBrowser->setMarkdown("## Download failed❎ [" + reply->url().host() + "]\n" + reply->errorString());
             sysTray.showMessage("Download failed", reply->errorString());
         } else {
+            // sha256 校验（有则校验：GitHub API 对新版资产提供 `sha256:` digest；旧资产可能为空则跳过）
+            if (relInfo.digest.startsWith(QStringLiteral("sha256:"))) {
+                QFile verifyFile(downloadStatus.file.fileName());
+                QString actual;
+                if (verifyFile.open(QIODevice::ReadOnly)) {
+                    QCryptographicHash hash(QCryptographicHash::Sha256);
+                    if (hash.addData(&verifyFile))
+                        actual = QStringLiteral("sha256:") + QString::fromLatin1(hash.result().toHex());
+                    verifyFile.close();
+                }
+                if (actual.compare(relInfo.digest, Qt::CaseInsensitive) != 0) {
+                    qWarning() << "#Hash mismatch:" << actual << relInfo.digest;
+                    ui->textBrowser->setMarkdown("## Download corrupted❎\nsha256 mismatch");
+                    QFile::remove(downloadStatus.file.fileName());
+                    return;
+                }
+                qDebug() << "#Hash verified" << actual;
+            } else if (!relInfo.digest.isEmpty()) {
+                qWarning() << "#Unknown digest format, skipped:" << relInfo.digest;
+            }
             ui->textBrowser->setMarkdown("## Download success✅");
             sysTray.showMessage("Download Status", "Success!");
             emit downloadSucceed(downloadStatus.file.fileName());
@@ -258,7 +322,15 @@ void UpdateDialog::verifyUpdate(const QCoreApplication& app) {
 
 void UpdateDialog::showEvent(QShowEvent*) {
     applyTheme(); // 同一实例会被复用：每次显示时同步当前主题
-    if (!downloadStatus.reply)
+    if (downloadStatus.reply)
+        return;
+    // 节流：距上次成功获取不足 10 分钟直接复用现有内容（匿名 API 限流 60 次/小时/IP）；
+    // 「Check again」按钮不受限（直接调用 fetch，保留强制刷新路径）
+    constexpr qint64 CacheMs = 10 * 60 * 1000;
+    const auto now = QDateTime::currentMSecsSinceEpoch();
+    if (lastFetchMs != 0 && now - lastFetchMs < CacheMs)
+        qDebug() << "#Skip fetch (cached), age(ms):" << (now - lastFetchMs);
+    else
         fetchGithubReleaseInfo();
 }
 
@@ -267,4 +339,7 @@ void UpdateDialog::applyTheme() {
     ui->textBrowser->setStyleSheet(QStringLiteral(
         "QTextBrowser { font: 10pt \"微软雅黑\"; padding: 5px; border-radius: 5px; background-color: %1; }")
         .arg(Theme::isDark() ? QStringLiteral("#2D2D2D") : QStringLiteral("#F6F6F6")));
+    // 「Current Version」次级文字随主题（原 .ui 固定 #7A7A7A，深色下偏暗；浅色保持原值不变）
+    ui->label_ver->setStyleSheet(QStringLiteral("color: %1;")
+        .arg(Theme::isDark() ? QStringLiteral("#9E9E9E") : QStringLiteral("#7A7A7A")));
 }

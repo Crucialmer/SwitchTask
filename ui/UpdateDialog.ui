@@ -39,7 +39,7 @@
       </font>
      </property>
      <property name="styleSheet">
-      <string notr="true">color: rgb(122, 122, 122);</string>
+      <string notr="true"/>
      </property>
      <property name="text">
       <string>Current Version:</string>

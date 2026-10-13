@@ -9,7 +9,7 @@
 #include "ConfigManagerBase.h"
 
 // 注意：对于大量使用的类，header-only 模式会导致编译时间过长
-#define cfg ConfigManager::instance()
+#define CFG ConfigManager::instance()
 
 enum DisplayMonitor {
     PrimaryMonitor, // 0 主显示器
