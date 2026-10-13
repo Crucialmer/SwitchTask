@@ -307,7 +307,7 @@ QString UpdateDialog::writeBat(const QString& sourceDir, const QString& targetDi
     // bat += "@pause\r\n";
     bat += QString("@del \"%~dp0%1\"\r\n").arg(archive.fileName);
     bat += QString("@rd /S /Q \"%~dp0%1\"\r\n").arg(archive.extractDir);
-    bat += QString("@start \"\" \"%~dp0%1\" --verify-update \"%2->%3\"\r\n").arg(QFile(qApp->applicationFilePath()).fileName(),
+    bat += QString("@start \"\" \"%~dp0%1\" --verify-update \"%2->%3\"\r\n").arg(QFileInfo(qApp->applicationFilePath()).fileName(),
                                                                                  version.toString(), relInfo.ver.toString());
     bat += "@del \"%~f0\"";
     QFile file(appDir + "/copy.bat");
