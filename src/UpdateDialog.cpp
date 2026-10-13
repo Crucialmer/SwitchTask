@@ -12,6 +12,7 @@
 #include <QDesktopServices>
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QFileInfo>
 #include "utils/SystemTray.h"
 #include "utils/Theme.h"
 #include "QtCore/private/qzipreader_p.h"
@@ -24,6 +25,51 @@ static bool isAllowedGithubUrl(const QUrl& url) {
     return host == QStringLiteral("github.com")
            || host == QStringLiteral("api.github.com")
            || host.endsWith(QStringLiteral(".githubusercontent.com"));
+}
+
+/// 手动逐条目解压 zip（替代 QZipReader::extractAll）。
+/// 起因：Qt 6.8 的 extractAll 对【根级文件条目】处理有缺陷——实测会把根级文件（如 Qt6Core.dll、
+/// SwitchTask.exe）创建为空目录并整体返回失败（嵌套文件正常），导致更新包解压失败、自动更新不可用。
+/// 逐条目 API（fileInfoList/fileData）行为正常：逐条建父目录、写文件，返回是否全部成功。
+static bool extractZipTo(const QString& zipPath, const QString& destDir) {
+    QZipReader reader(zipPath);
+    if (!reader.isReadable()) {
+        qWarning() << "#extractZipTo: zip not readable:" << zipPath;
+        return false;
+    }
+    const auto infos = reader.fileInfoList();
+    if (infos.isEmpty()) {
+        qWarning() << "#extractZipTo: no entries:" << zipPath;
+        return false;
+    }
+    int files = 0;
+    for (const auto& fi: infos) {
+        const auto dest = QDir(destDir).absoluteFilePath(fi.filePath);
+        if (fi.isDir) {
+            if (!QDir().mkpath(dest)) {
+                qWarning() << "#extractZipTo: mkpath failed:" << dest;
+                return false;
+            }
+            continue;
+        }
+        if (!QDir().mkpath(QFileInfo(dest).path())) { // 先建父目录（zip 可能不含目录条目）
+            qWarning() << "#extractZipTo: mkpath parent failed:" << dest;
+            return false;
+        }
+        const auto data = reader.fileData(fi.filePath);
+        if (fi.size > 0 && data.isEmpty()) {
+            qWarning() << "#extractZipTo: read entry failed:" << fi.filePath;
+            return false;
+        }
+        QFile out(dest);
+        if (!out.open(QIODevice::WriteOnly) || out.write(data) != data.size()) {
+            qWarning() << "#extractZipTo: write failed:" << dest;
+            return false;
+        }
+        ++files;
+    }
+    qDebug() << "#extractZipTo: extracted files:" << files << "dir:" << destDir;
+    return files > 0;
 }
 
 UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::UpdateDialog) {
@@ -58,10 +104,7 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
         if (filePath.endsWith(".zip", Qt::CaseInsensitive)) { // 大小写不敏感
             auto relDir = QDir(qApp->applicationDirPath() + '/' + archive.extractDir);
             relDir.removeRecursively();
-            if (QZipReader reader(filePath); reader.isReadable() &&
-                                             reader.extractAll(relDir.absolutePath()) &&
-                                             relDir.exists()) {
-                // extractAll 失败 貌似也会返回true (& status() == 0 NoError)？离谱
+            if (extractZipTo(filePath, relDir.absolutePath()) && relDir.exists()) {
                 auto entryInfos = relDir.entryInfoList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
                 if (entryInfos.size() == 1 && entryInfos.first().isDir()) { // 有可能还套了一层根目录
                     relDir.cd(entryInfos.first().fileName());
@@ -71,7 +114,7 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
                 QDesktopServices::openUrl(QUrl::fromLocalFile(batPath));
                 qApp->quit(); //
             } else {
-                qWarning() << "Extract failed" << reader.status();
+                qWarning() << "Extract failed" << filePath;
                 ui->textBrowser->setMarkdown("## Extract failed❎");
             }
         } else {
