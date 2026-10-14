@@ -37,9 +37,10 @@ namespace Theme {
     }
 
     // ---------- 切换器弹窗（Widget 面板）配色 ----------
-    // 浅色填充取近乎不透明：半透明浅色在部分合成环境（透明窗口叠黑底）下会被压成脏灰，
-    // 近乎不透明可保证面板在任何壁纸/窗口背景上都呈现干净浅色（深色态保持原有通透观感）
-    inline QColor panelFill() { return isDark() ? QColor(25, 25, 25, 100) : lightSurface(252); }
+    // 浅色填充：半透明、偏暗一档的柔和灰白（α182）——通透感由填充 alpha 承载（真机上叠加窗口
+    // 模糊成毛玻璃；RDP/虚拟机等合成环境系统模糊时有时无，纯半透明观感依然成立）。
+    // 深色态维持原有通透暗调
+    inline QColor panelFill() { return isDark() ? QColor(25, 25, 25, 100) : QColor(246, 246, 246, 182); }
     inline QColor panelStroke() { return isDark() ? QColor(255, 255, 255, 36) : QColor(0, 0, 0, 26); }
     inline QColor labelColor() { return isDark() ? QColor(240, 240, 240) : QColor(34, 34, 34); }
     inline QColor hoverFill() { return isDark() ? QColor(255, 255, 255, 36) : QColor(0, 0, 0, 18); }

@@ -44,7 +44,7 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     setWindowTitle("SwitchTask");
 
     Util::setWindowRoundCorner(this->hWnd()); // 设置窗口圆角
-    setWindowBlur(hWnd()); // 设置窗口模糊, 必须配合Qt::WA_TranslucentBackground
+    // 窗口材质（磨砂模糊）统一在 applyTheme() 内应用（须配合 WA_TranslucentBackground；见下）
 
     setupLabelFont();
 
@@ -295,6 +295,12 @@ void Widget::setupLabelFont() {
 
 /// 应用当前深浅色主题：底部标题颜色、列表选中/悬停/描边色、面板与列表重绘
 void Widget::applyTheme() {
+    // 窗口材质：磨砂模糊（BLURBEHIND）——透明窗口 + 模糊在真机上呈毛玻璃观感。
+    // 注：2026-10-14 实测，ACRYLICBLURBEHIND（亚克力）在部分合成环境（RDP/虚拟 GPU）会被系统
+    // 渲染为纯色实心层（忽略染色 alpha），把半透明填充的通透感整个盖死——故不启用；通透感由
+    // 面板填充的 alpha 承载（系统不支持模糊时自动降级为纯半透明，观感依然成立）。
+    // SetWindowCompositionAttribute 幂等——每次主题变更重新应用
+    setWindowBlur(hWnd());
     ui->label->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::labelColor().name()));
     if (iconDelegate)
         iconDelegate->setColors(Theme::selectionFill(), Theme::hoverFill(), Theme::ringColor());
