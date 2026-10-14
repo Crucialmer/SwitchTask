@@ -23,7 +23,7 @@ VS_VERSION_INFO VERSIONINFO
                 VALUE "FileDescription", "@FILE_DESCRIPTION@\0"
                 VALUE "FileVersion", "@VERSION_MAJOR@.@VERSION_MINOR@.@VERSION_PATCH@.0\0"
                 VALUE "ProductName", "@PRODUCT_NAME@\0"
-                VALUE "LegalCopyright", "\0"
+                VALUE "LegalCopyright", "Copyright (C) 2026 Crucialmer. Licensed under GPL-3.0.\0"
                 VALUE "ProductVersion", "@VERSION_MAJOR@.@VERSION_MINOR@.@VERSION_PATCH@.0\0"
             END
         END

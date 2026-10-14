@@ -126,7 +126,7 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
                 const auto batPath = writeBat(relDir.absolutePath(), qApp->applicationDirPath());
                 if (batPath.isEmpty() || !QDesktopServices::openUrl(QUrl::fromLocalFile(batPath))) {
                     qWarning() << "#Failed to start updater bat:" << batPath;
-                    ui->textBrowser->setMarkdown("## Failed to start updater❎\nSee log for details");
+                    ui->textBrowser->setMarkdown("## Failed to start updater❎\nPlease retry, or download the update manually from the releases page");
                     return; // 不退出：更新未发生，保留当前会话与重试机会
                 }
                 qApp->quit(); //
@@ -196,18 +196,28 @@ void UpdateDialog::fetchGithubReleaseInfo() {
         relInfo.downloadUrl.clear(); // 无条件清空：assets 缺失时也不得残留上次请求的下载地址（否则可能误下载旧版本）
         relInfo.digest.clear();
         if (const auto assets = obj["assets"].toArray(); !assets.isEmpty()) {
-            // 筛选 zip asset，避免取到非压缩包或顺序不确定导致错误下载
+            // 资产选择：优先精确匹配标准资产名 SwitchTask.zip；退化任意 .zip；再退化第一个 asset——
+            // 避免取到非压缩包或顺序不确定导致错误下载
+            const auto pick = [this](const QJsonObject& asset) {
+                relInfo.downloadUrl = asset["browser_download_url"].toString();
+                relInfo.digest = asset["digest"].toString(); // 可能为空（旧资产）：有则校验、无则跳过
+            };
             for (const auto& asset: assets) {
-                const auto name = asset.toObject()["name"].toString();
-                if (name.endsWith(".zip", Qt::CaseInsensitive)) {
-                    relInfo.downloadUrl = asset.toObject()["browser_download_url"].toString();
-                    relInfo.digest = asset.toObject()["digest"].toString(); // 可能为空（旧资产）：有则校验、无则跳过
+                if (asset.toObject()["name"].toString() == QStringLiteral("SwitchTask.zip")) {
+                    pick(asset.toObject());
                     break;
                 }
             }
+            if (relInfo.downloadUrl.isEmpty()) {
+                for (const auto& asset: assets) {
+                    if (asset.toObject()["name"].toString().endsWith(".zip", Qt::CaseInsensitive)) {
+                        pick(asset.toObject());
+                        break;
+                    }
+                }
+            }
             if (relInfo.downloadUrl.isEmpty()) { // fallback 到第一个 asset（保持原行为）
-                relInfo.downloadUrl = assets.first().toObject()["browser_download_url"].toString();
-                relInfo.digest = assets.first().toObject()["digest"].toString();
+                pick(assets.first().toObject());
             }
         }
 
@@ -215,7 +225,7 @@ void UpdateDialog::fetchGithubReleaseInfo() {
         ui->label_newVer->setText(QString("New Version: v%1 (%2)").arg(relInfo.ver.toString(), relInfo.publishTime));
         ui->label_ver->setText(QString("Current Version: v%1").arg(version.toString()));
 
-        bool needUpdate = relInfo.ver > version;
+        bool needUpdate = relInfo.ver.normalized() > version.normalized(); // 归一化比较：两段/三段（1.0 ↔ 1.0.0）等价，与自证/CI 校验同一纪律
         // 如果要支持网络图片，必须重写`QTextBrowser::loadResource`，默认是作为本地文件处理
         ui->textBrowser->setMarkdown(needUpdate ? relInfo.description : "# ✅Everything is up-to-date");
         // 下载进行中不得重新点亮 Update（否则可二进下载流程、覆盖共享状态）
@@ -230,6 +240,7 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
     auto* reply = manager.get(request);
     downloadStatus.blocked = false;
     downloadStatus.digest = relInfo.digest; // 快照：下载期间即使发生重新检查更新，也按本次下载对应的资产摘要校验
+    downloadStatus.targetVer = relInfo.ver; // 目标版本快照：批处理自证参数同此纪律
     ui->btn_recheck->setEnabled(false); // 下载期间禁止“检查更新”重入（避免覆盖下载状态/共享槽位）
     // 重定向逐跳校验：仅放行 GitHub 及其资源 CDN（发布资产正常 302 到 *.githubusercontent.com）
     connect(reply, &QNetworkReply::redirected, this, [this, reply](const QUrl& redirectUrl) {
@@ -249,6 +260,8 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
         qWarning() << "Failed to open file for writing:" << savePath;
         ui->textBrowser->setMarkdown("## Cannot write to file❎\n" + savePath);
         ui->btn_update->setEnabled(true);
+        ui->progressBar->hide();              // 此路径早于 finished 连接：控件恢复需在此显式完成
+        ui->btn_recheck->setEnabled(true);    // （原先进度条永转、按钮永灰，直到下一次下载成功）
         reply->abort();
         reply->deleteLater();
         return;
@@ -278,12 +291,14 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
         // 成功判定以 finished 时的错误码与 HTTP 状态码为准，而非 downloadProgress 的 bytesReceived == bytesTotal
         // （Content-Length 缺失时 bytesTotal 恒为 -1，条件永不成立或意外成立均不可靠）
         if (downloadStatus.blocked) { // 重定向被白名单拦截（abort 触发 finished）：给出准确报错
+            QFile::remove(downloadStatus.file.fileName()); // 清理半成品（与 sha256 失败分支同一纪律）
             ui->textBrowser->setMarkdown("## Download blocked❎\nRedirect to disallowed host");
             return;
         }
         const auto httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() != QNetworkReply::NoError || (httpStatus != 0 && httpStatus != 200)) {
             qWarning() << "Download failed" << reply->errorString() << httpStatus;
+            QFile::remove(downloadStatus.file.fileName()); // 清理半成品
             ui->textBrowser->setMarkdown("## Download failed❎ [" + reply->url().host() + "]\n" + reply->errorString());
             sysTray.showMessage("Download failed", reply->errorString());
         } else {
@@ -336,7 +351,7 @@ QString UpdateDialog::writeBat(const QString& sourceDir, const QString& targetDi
     bat += QString("@del \"%~dp0%1\"\r\n").arg(archive.fileName);
     bat += QString("@rd /S /Q \"%~dp0%1\"\r\n").arg(archive.extractDir);
     bat += QString("@start \"\" \"%~dp0%1\" --verify-update \"%2->%3\"\r\n").arg(QFileInfo(qApp->applicationFilePath()).fileName(),
-                                                                                 version.toString(), relInfo.ver.toString());
+                                                                                 version.toString(), downloadStatus.targetVer.toString());
     bat += "@del \"%~f0\" & exit /b 0\r\n"; // 自删与退出合并为一行：文件删除后不再需要读取后续行
     bat += ":copyFailed\r\n";
     bat += "@echo ##Copy FAILED - update aborted. Update files kept for retry.\r\n";

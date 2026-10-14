@@ -25,7 +25,7 @@ jobs:
           $ver = $m.Matches[0].Groups[1].Value
           # 归一化比较：去前缀 v、按组件去尾随 .0（保留至少两位）——支持 tag v1.0 与 CMake 1.0.0 等价
           function Get-Norm([string]$s) {
-            $s = $s.TrimStart('v')
+            if ($s.StartsWith('v')) { $s = $s.Substring(1) } # 与运行时一致：只剥一个前导 v（TrimStart 会剥掉全部）
             while (($s.Split('.').Count -gt 2) -and $s.EndsWith('.0')) { $s = $s.Substring(0, $s.Length - 2) }
             return $s
           }

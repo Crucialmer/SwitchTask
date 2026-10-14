@@ -29,6 +29,7 @@
 #include <QSet>
 #include <QTimer>
 #include <QImage>
+#include <QCache>
 #include <QStringView>
 #include <atomic>
 
@@ -50,8 +51,9 @@ namespace Util {
 
     QString getClassName(HWND hwnd) { // 性能还可以，0.02ms
         const int MAX = 256;
-        wchar_t className[MAX];
-        GetClassName(hwnd, className, MAX);
+        wchar_t className[MAX] = {}; // 零初始化：句柄失效时 GetClassName 不写入缓冲，直接读未初始化栈内存是 UB
+        if (GetClassName(hwnd, className, MAX) <= 0)
+            return {}; // 失败返回空串（与上游 size()>0 门禁语义一致：此类窗口本就不应入列表）
         return QString::fromWCharArray(className);
     }
 
@@ -85,8 +87,10 @@ namespace Util {
 
     /// 判断窗口是否处于提升状态（管理员权限），有趣的是"任务管理器"是`Elevated`的，但是无需经过UAC确认，可能系统应用自动提升
     bool isWindowElevated(HWND hwnd) {
-        DWORD pid;
+        DWORD pid = 0;
         GetWindowThreadProcessId(hwnd, &pid);
+        if (!pid) // 句柄失效时 pid 无写入保证：以 0 防御，避免用未初始化值调 OpenProcess
+            return false;
 
         HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if (hProcess == nullptr) {
@@ -539,8 +543,10 @@ namespace Util {
         }
         // 仅通过`isAppFrameWindow(hwnd)`来判断UWP可能不够准确
 
-        DWORD pid;
+        DWORD pid = 0;
         GetWindowThreadProcessId(hwnd, &pid);
+        if (!pid) // 同上：失效句柄保护（否则可能命中无关进程的包目录）
+            return {};
         HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
         if (!hProcess) {
             qWarning() << "OpenProcess failed" << GetLastError();
@@ -580,9 +586,17 @@ namespace Util {
 
     // ----------------- 后台图标预取（工作线程提取 QImage；GUI 线程转换为 QIcon） -----------------
     namespace {
-        QMutex g_iconPrefetchMutex;              // 保护以下两个容器
-        QHash<QString, QImage> g_iconImageCache; // 后台提取好的图标图像（GUI 转换后即移除，控制内存）
-        QSet<QString> g_iconResolvedPaths;       // GUI 线程已得到最终图标的 path，后台不再提取
+        /// 预取共享状态：泄漏式单例（进程退出不析构）——即使退出握手超时、工作线程仍在运行，
+        /// 也不会与静态析构竞争（wait 仅作兜底，不再作为唯一安全保证）
+        struct PrefetchState {
+            QMutex mutex;                      // 保护以下两个容器
+            QHash<QString, QImage> imageCache; // 后台提取好的图标图像（GUI 转换后即移除，控制内存）
+            QSet<QString> resolvedPaths;       // GUI 线程已得到最终图标的 path，后台不再提取
+        };
+        PrefetchState& prefetchState() {
+            static auto* state = new PrefetchState;
+            return *state;
+        }
         std::atomic_bool g_prefetchBusy{false};         // 单飞：上一轮预取仍在运行时不重复启动
         std::atomic_bool g_prefetchShuttingDown{false}; // 退出握手：置位后不再启动新任务、工作循环尽快收尾
 
@@ -625,16 +639,16 @@ namespace Util {
                 if (path.isEmpty() || seen.contains(path)) continue;
                 seen.insert(path);
                 {
-                    QMutexLocker locker(&g_iconPrefetchMutex);
-                    if (g_iconResolvedPaths.contains(path) || g_iconImageCache.contains(path))
+                    QMutexLocker locker(&prefetchState().mutex);
+                    if (prefetchState().resolvedPaths.contains(path) || prefetchState().imageCache.contains(path))
                         continue; // 已有最终结果或已被预取
                 }
                 auto image = extractJumboIconImage(path);
                 if (image.isNull()) continue;
                 {
-                    QMutexLocker locker(&g_iconPrefetchMutex);
-                    if (!g_iconResolvedPaths.contains(path)) // 期间 GUI 可能已抢先给出最终结果
-                        g_iconImageCache.insert(path, image);
+                    QMutexLocker locker(&prefetchState().mutex);
+                    if (!prefetchState().resolvedPaths.contains(path)) // 期间 GUI 可能已抢先给出最终结果
+                        prefetchState().imageCache.insert(path, image);
                 }
                 count++;
             }
@@ -647,15 +661,15 @@ namespace Util {
 
     /// 从预取缓存取出图像（取出即删除；GUI 线程调用）
     QImage takePrefetchedIconImage(const QString& path) {
-        QMutexLocker locker(&g_iconPrefetchMutex);
-        return g_iconImageCache.take(path);
+        QMutexLocker locker(&prefetchState().mutex);
+        return prefetchState().imageCache.take(path);
     }
 
     /// 标记 path 已由 GUI 线程得到最终图标
     void markIconResolved(const QString& path) {
-        QMutexLocker locker(&g_iconPrefetchMutex);
-        g_iconResolvedPaths.insert(path);
-        g_iconImageCache.remove(path); // 最终图标已产出：预取图像不再需要（UWP 分支不消费预取图像，避免其永久驻留）
+        QMutexLocker locker(&prefetchState().mutex);
+        prefetchState().resolvedPaths.insert(path);
+        prefetchState().imageCache.remove(path); // 最终图标已产出：预取图像不再需要（UWP 分支不消费预取图像，避免其永久驻留）
     }
 
     /// 启动后台图标预取（GUI 线程调用一次）：启动后 10s 首跑，此后每 60s 一次
@@ -707,9 +721,10 @@ namespace Util {
     /// 如果想要直接通过exe path获取icon，就只能通过`FindPackagesForUser`枚举不太优雅<br>
     /// 让`hwnd`成为唯一参数也可以，就是要重新获取一次 path from hwnd，效率较低
     QIcon getCachedIcon(const QString& path, HWND hwnd) {
-        static QHash<QString, QIcon> IconCache;
-        if (auto icon = IconCache.value(path); !icon.isNull())
-            return icon;
+        // 受控容量的图标缓存（LRU，≤128 条 ≈32MB 上限）：防病态增长；被淘汰后重载成本仅为一次提取
+        static QCache<QString, QIcon> IconCache(128);
+        if (const auto* cached = IconCache.object(path); cached && !cached->isNull())
+            return *cached;
 
         QElapsedTimer t;
         t.start();
@@ -739,7 +754,7 @@ namespace Util {
                 icon = QFileIconProvider().icon(QFileInfo(path)).pixmap(48);
             }
         }
-        IconCache.insert(path, icon);
+        IconCache.insert(path, new QIcon(icon));
         if (!icon.isNull())
             markIconResolved(path); // 已得到最终图标，通知后台预取跳过该 path
         else
@@ -885,7 +900,11 @@ namespace Util {
                     QTimer::singleShot(0, unhookClickShield); // 回事件循环后安全卸载
                 } else if (wParam == WM_LBUTTONDOWN) {
                     auto* d = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
-                    if (qAbs(d->pt.x - g_clickShield.pos.x) <= 6 && qAbs(d->pt.y - g_clickShield.pos.y) <= 6) {
+                    // 容差取系统双击矩形（DPI 感知）、下限 6 物理像素：超高缩放时系统矩形更宽，
+                    // 固定 6 会窄于系统定义，导致真正的“双击第二下”漏吞
+                    const int tolX = qMax(6, GetSystemMetrics(SM_CXDOUBLECLK) / 2);
+                    const int tolY = qMax(6, GetSystemMetrics(SM_CYDOUBLECLK) / 2);
+                    if (qAbs(d->pt.x - g_clickShield.pos.x) <= tolX && qAbs(d->pt.y - g_clickShield.pos.y) <= tolY) {
                         g_clickShield.pendingRelease = true;
                         return 1; // 吞掉双击的第二下
                     }

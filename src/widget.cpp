@@ -708,7 +708,9 @@ bool Widget::eventFilter(QObject* watched, QEvent* event) {
     }
     if (watched == lw && event->type() == QEvent::Wheel) {
         auto* wheelEvent = static_cast<QWheelEvent*>(event);
-        auto cursorPos = wheelEvent->position().toPoint();
+        // 命中判定用 viewport 坐标（与点击路径同一纪律）：滚轮事件可能以 lw 为接收者，
+        // 其 position() 为 lw 坐标，与 itemAt() 所需 viewport 坐标相差一个 frameWidth
+        auto cursorPos = lw->viewport()->mapFromGlobal(wheelEvent->globalPosition().toPoint());
         if (auto item = lw->itemAt(cursorPos)) {
             if (lw->currentItem() != item)
                 lw->setCurrentItem(item);
@@ -818,10 +820,16 @@ void Widget::rotateTaskbarWindowInGroup(const QString& exePath, bool forward, in
         if (windows == 1) { // 由于过滤的存在，groupWindowOrder.size() 不一定等于 windows(真实窗口数量)
             // 单窗口情况下，模拟点击呼出，是最保险的
             if ((hwnd != GetForegroundWindow() || IsIconic(hwnd))) { // 若采用SW_SHOWMINNOACTIVE, 则前台窗口不会变化，可能为刚刚最小化的窗口
-                mouseEvent(MOUSEEVENTF_LEFTDOWN);
-                mouseEvent(MOUSEEVENTF_LEFTUP);
-                qApp->processEvents();
-                qDebug() << "(Taskbar)Switch by click";
+                // 注入前复核光标仍在任务栏上：本流程含排队/延时（20ms~200ms），光标若已移开，
+                // 合成点击会落到其它窗口或桌面上
+                if (Util::isTaskbarWindow(Util::topWindowFromPoint(Util::getCursorPos()))) {
+                    mouseEvent(MOUSEEVENTF_LEFTDOWN);
+                    mouseEvent(MOUSEEVENTF_LEFTUP);
+                    qApp->processEvents();
+                    qDebug() << "(Taskbar)Switch by click";
+                } else {
+                    qDebug() << "(Taskbar)Switch skipped: cursor no longer on taskbar";
+                }
             }
         } else {
             // 在TaskListThumbnailWnd显示的情况下restore window会导致预览实时刷新，导致卡顿和闪烁

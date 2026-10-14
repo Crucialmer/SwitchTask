@@ -55,6 +55,7 @@ private:
     struct {
         bool blocked = false; // 重定向到非白名单主机（abort 后 finished 里给出准确报错）
         QString digest; // 本次下载对应的资产 sha256 摘要快照（下载期间重查更新不覆盖）
+        QVersionNumber targetVer; // 本次下载的目标版本快照（同上：批处理自证参数须用本包对应的目标版本）
         QNetworkReply* reply = nullptr;
         QFile file;
     } downloadStatus;

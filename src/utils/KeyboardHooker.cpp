@@ -2,8 +2,13 @@
 #include <QDebug>
 #include <QApplication>
 #include <QKeyEvent>
+#include <QLoggingCategory>
 #include "utils/Util.h"
 #include "widget.h"
+
+// 钩子回调日志类别：默认级别全开（默认输出与原先逐字一致）；现场可用
+// QT_LOGGING_RULES="switchtask.hook.debug=false" 精准静音（勿默认禁用——保留既有调试输出）
+Q_LOGGING_CATEGORY(lcHook, "switchtask.hook")
 
 LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     using Hooker = KeyboardHooker;
@@ -43,11 +48,11 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                             return 1; // 自动重复事件，忽略（只处理首次按下）
                         s_ctrlTabDown = true;
                         // Ctrl+Alt+Tab：松手后切换器保持显示（pinned），Enter/点击确认，Esc 取消
-                        qDebug() << "Ctrl+Alt+Tab detected!";
+                        qCDebug(lcHook) << "Ctrl+Alt+Tab detected!";
                         QMetaObject::invokeMethod(Hooker::receiver, "requestShowPinned", Qt::QueuedConnection);
                         return 1; // 阻止事件传递（拦截系统的 Ctrl+Alt+Tab 固定切换器）
                     }
-                    qDebug() << "Alt+Tab detected!";
+                    qCDebug(lcHook) << "Alt+Tab detected!";
                     if (Hooker::receiver->isVisible() && !Hooker::receiver->isMinimized()) {
                         // 弹出器已显示（pinned）：直接转发循环选择——不依赖键盘焦点，
                         // 抢焦点失败（可见但非前台）时也能连续切换，且不刷新列表、不丢选择
@@ -65,7 +70,7 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                     }
                     return 1; // 阻止事件传递
                 } else if (pKeyBoard->vkCode == VK_OEM_3) { // ~`
-                    qDebug() << "Alt+` detected!";
+                    qCDebug(lcHook) << "Alt+` detected!";
                     auto shiftModifier = Util::isKeyPressed(VK_SHIFT) ? Qt::ShiftModifier : Qt::NoModifier;
                     auto event = new QKeyEvent(QEvent::KeyPress, Qt::Key_QuoteLeft, Qt::AltModifier | shiftModifier);
                     QApplication::postEvent(Hooker::receiver, event); // async
@@ -135,7 +140,7 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 s_wDown = false; // Ctrl+W 释放：重置自动重复守卫
             if ((pKeyBoard->vkCode == VK_LMENU || pKeyBoard->vkCode == VK_RMENU) && Hooker::receiver) {
                 // BUG: Alt + 方向键 长按，过一秒会触发Alt release，而Alt + 其他键则不会，可能是Windows保护机制或键盘问题？
-                qDebug() << "Alt released!";
+                qCDebug(lcHook) << "Alt released!";
                 auto event = new QKeyEvent(QEvent::KeyRelease, Qt::Key_Alt, Qt::NoModifier);
                 QApplication::postEvent(Hooker::receiver, event); // async
                 // not block

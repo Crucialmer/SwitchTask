@@ -245,8 +245,12 @@ namespace AppUtil {
     QString getUwpExePathByAUMID(const QString& AUMID) {
         auto applicationId = AUMID.split('!').last();
         auto dir = getUWPInstallDirByAUMID(AUMID);
+        if (dir.isEmpty())
+            return {}; // 包目录未知：返回空（而非拼接伪路径），调用方按“未找到”处理
         auto manifest = dir + '\\' + AppManifest;
         auto exePath = getExecutableFromAppxManifest(manifest, applicationId);
+        if (exePath.isEmpty())
+            return {}; // Manifest 未提供 Executable：同上
         return dir + '\\' + exePath;
     }
 
@@ -324,8 +328,11 @@ namespace AppUtil {
                 app2Path.insert(name, exePath);
             }
         };
-        if (app2Path.isEmpty()) // init & cache
+        static bool startAppMapsBuilt = false;
+        if (!startAppMapsBuilt) { // init & cache（显式标志：空列表也算“已构建”，避免失败时随调用反复重建）
+            startAppMapsBuilt = true;
             buildStartAppMaps();
+        }
 
         if (appid.isEmpty()) return {};
         if (QFile::exists(appid)) // if appid is exe path
