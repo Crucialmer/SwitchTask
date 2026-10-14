@@ -49,6 +49,14 @@ namespace Theme {
     /// 无描环（选中提示交给放大动效与底部标题）。用户裁决 2026-10-14（C 方案）
     inline QColor selectionFill() { return isDark() ? QColor(255, 255, 255, 44) : QColor(0, 0, 0, 26); }
 
+    // ---------- 面板背景材质（Apple 式细化：光影/颗粒/受光缘；2026-10-14 用户裁决）----------
+    /// 光影渐变：顶部提亮（受光面）
+    inline QColor panelGradTop() { return isDark() ? QColor(255, 255, 255, 14) : QColor(255, 255, 255, 18); }
+    /// 光影渐变：底部压沉（着地面；用户复核“再沉一点”）
+    inline QColor panelGradBottom() { return isDark() ? QColor(0, 0, 0, 30) : QColor(0, 0, 0, 20); }
+    /// 顶部内侧受光缘（细高光线）
+    inline QColor panelTopSheen() { return isDark() ? QColor(255, 255, 255, 60) : QColor(255, 255, 255, 76); }
+
     // ---------- 更新窗口配色 ----------
     /// 更新说明区底色（QSS 需设实底，圆角才生效）
     inline QColor dialogSurface() { return isDark() ? QColor(0x2D, 0x2D, 0x2D) : QColor(0xF6, 0xF6, 0xF6); }

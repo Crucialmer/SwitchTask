@@ -15,6 +15,8 @@
 #include <QMouseEvent>
 #include <QStyleHints>
 #include <QTimer>
+#include <QRandomGenerator>
+#include <QImage>
 #include <QVariantAnimation>
 #include <QEasingCurve>
 #include <QMetaEnum>
@@ -323,6 +325,27 @@ void Widget::keyReleaseEvent(QKeyEvent* event) {
     QWidget::keyReleaseEvent(event);
 }
 
+/// 材质颗粒纹理笔刷（Apple 式细颗粒：质感 + 防色带）。
+/// 固定种子 → 纹理跨运行稳定；绘制侧按设备像素比缩小 → 1 颗粒 = 1 设备像素（高 DPI 下依旧细腻）
+static const QBrush& grainTextureBrush()
+{
+    static QBrush brush = [] {
+        QImage tex(96, 96, QImage::Format_ARGB32_Premultiplied);
+        tex.fill(Qt::transparent);
+        QRandomGenerator rng(20261014); // 固定种子
+        for (int y = 0; y < tex.height(); ++y)
+            for (int x = 0; x < tex.width(); ++x) {
+                const int v = int(rng.bounded(5)) - 2; // -2..2 级亮度
+                if (v == 0)
+                    continue;
+                const int a = qAbs(v) * 3; // 3~6/255：细而低调
+                tex.setPixelColor(x, y, QColor(v > 0 ? 255 : 0, v > 0 ? 255 : 0, v > 0 ? 255 : 0, a));
+            }
+        return QBrush(tex);
+    }();
+    return brush;
+}
+
 void Widget::paintEvent(QPaintEvent*) { //不绘制会导致鼠标穿透背景
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
@@ -333,7 +356,37 @@ void Widget::paintEvent(QPaintEvent*) { //不绘制会导致鼠标穿透背景
     painter.setPen(Qt::NoPen);
     painter.setBrush(panelFillColor); // 主题变更由 applyTheme() 同步，绘制路径零 QSettings 读取
     painter.drawPath(panel);
-    painter.setBrush(Qt::NoBrush);
+    // Apple 式背景材质细化（2026-10-14 裁决）之一：光影渐变（上亮→下沉）——“光从上打下来”的材质层次
+    {
+        QLinearGradient shade(0, 0, 0, height());
+        shade.setColorAt(0.0, Theme::panelGradTop());
+        shade.setColorAt(0.5, Qt::transparent);
+        shade.setColorAt(0.75, Qt::transparent);
+        shade.setColorAt(1.0, Theme::panelGradBottom());
+        painter.setBrush(shade);
+        painter.drawPath(panel);
+    }
+    // 之二：细颗粒（材质触感 + 防渐变色带）；1 颗粒 = 1 设备像素（用户复核“再细一点”）
+    {
+        QBrush grain = grainTextureBrush();
+        const qreal dpr = devicePixelRatioF();
+        grain.setTransform(QTransform::fromScale(1.0 / dpr, 1.0 / dpr));
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+        painter.setBrush(grain);
+        painter.drawPath(panel);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    }
+    // 之三：顶部受光缘（内侧细高光线，随圆角弯曲；渐变画笔只覆盖顶部数像素 → 两侧自然淡出）
+    {
+        QPainterPath inner;
+        inner.addRoundedRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5), 11, 11);
+        QLinearGradient edge(0, 0, 0, 3);
+        edge.setColorAt(0.0, Theme::panelTopSheen());
+        edge.setColorAt(1.0, Qt::transparent);
+        painter.setPen(QPen(QBrush(edge), 2));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawPath(inner);
+    }
     painter.setPen(QPen(panelStrokeColor, 1)); // 细描边：在明/暗壁纸上勾勒面板轮廓（随主题切换）
     painter.drawPath(panel);
 }
