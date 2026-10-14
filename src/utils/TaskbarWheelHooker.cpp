@@ -1,9 +1,18 @@
 ﻿#include "utils/TaskbarWheelHooker.h"
 #include <QTimer>
 #include <QTime>
+#include <atomic>
 #include "utils/uiautomation.h"
 #include "utils/AppUtil.h"
 #include "utils/Util.h"
+
+namespace {
+    /// 背压：任务栏滚轮事件的“在途”计数（从钩子排队起、到 GUI 处理完毕止）。
+    /// 快速连滚 / GUI 忙时，逐事件排队会线性堆积——而处理时刻才重读光标下的元素，
+    /// 积压会把“某个时刻的意图”按停手后的光标位置解释，表现为“停手后仍连续切换、
+    /// 且可能切到别的应用”。阈值 1：已有在途事件时丢弃新事件（饱和才生效，正常速率无行为变化）。
+    std::atomic_int g_pendingWheel{0};
+}
 
 /// 低级钩子回调：只做廉价判定与事件缓存，重活（UIA查询/路径解析/切窗）全部由主线程
 /// processWheelEvent() 异步处理——WH_MOUSE_LL 回调超时（默认1s）会被系统静默跳过，
@@ -14,9 +23,14 @@ LRESULT CALLBACK mouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
         HWND topLevelHwnd = Util::topWindowFromPoint(data->pt);
         if (Util::isTaskbarWindow(topLevelHwnd)) {
             auto delta = (short) HIWORD(data->mouseData);
+            // 背压（饱和才生效）：已有在途事件 → 不排队，照常放行给系统
+            if (g_pendingWheel.load(std::memory_order_relaxed) >= 1)
+                return CallNextHookEx(nullptr, nCode, wParam, lParam);
             // 仅记录事件，QueuedConnection 交给 GUI 线程处理（instance 生命周期与进程一致，判空兜底）
-            if (TaskbarWheelHooker::instance)
+            if (TaskbarWheelHooker::instance) {
+                g_pendingWheel.fetch_add(1, std::memory_order_relaxed);
                 emit TaskbarWheelHooker::instance->rawWheelEvent(delta > 0, topLevelHwnd);
+            }
         }
     }
     return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -24,6 +38,10 @@ LRESULT CALLBACK mouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
 
 /// 在 GUI 线程执行原先钩子回调内的全部耗时逻辑
 void TaskbarWheelHooker::processWheelEvent(bool isUp, HWND topLevelHwnd) {
+    // 背压计数归还：函数任意 return 路径都必须归还（RAII 一次性覆盖）
+    struct PendingGuard {
+        ~PendingGuard() { g_pendingWheel.fetch_sub(1, std::memory_order_relaxed); }
+    } pendingGuard;
     auto delta = isUp ? 120 : -120;
     qDebug() << "--- Taskbar Mouse Wheel" << (delta > 0 ? "↑" : "↓");
     auto el = UIAutomation::getElementUnderMouse(); // RVO优化 不会调用移动构造; // this line may bomb TODO 也许可以改成遍历元素

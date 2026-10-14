@@ -479,6 +479,15 @@ bool Widget::prepareListWidget() {
     if (auto firstItem = lw->item(0)) {
         auto firstRect = lw->visualItemRect(firstItem);
         auto width = lw->gridSize().width() * lw->count() + (firstRect.x() - lw->frameWidth()); // 一些微小的噼里啪啦修正
+        // 宽度夹取：压缩到 CELL_MIN 仍可能超屏（如 1280 逻辑宽 ≈26 窗口起）——对任意 N 兑现
+        // “保证整行容纳在屏幕内”承诺：超宽部分截断 + 日志（出屏条目仅键盘循环可达）
+        const int maxListW = screen->availableGeometry().width() - ListWidgetMargin.left() - ListWidgetMargin.right();
+        if (width > maxListW) {
+            const int hidden = lw->count() - qMax(1, maxListW / qMax(1, lw->gridSize().width()));
+            qWarning() << "Panel width clamped:" << width << "->" << maxListW
+                       << "; items" << lw->count() << "hidden ~" << hidden;
+            width = maxListW;
+        }
         lw->setFixedWidth(width);
 
         // move to scrren center
@@ -512,6 +521,13 @@ bool Widget::prepareListWidget() {
         }
 
         thisRect.moveCenter(screen->geometry().center());
+
+        // 水平夹取：标题加宽后仍可能超“可用区”宽度——贴边而非出屏（别用 geometry()：竖排任务栏会重叠）
+        const auto availGeo = screen->availableGeometry();
+        if (thisRect.left() < availGeo.left())
+            thisRect.moveLeft(availGeo.left());
+        else if (thisRect.right() > availGeo.right())
+            thisRect.moveRight(availGeo.right());
 
         //region Fixed in Qt6, see commit [b927ee4b]
         //      !!!WARNING: 对于多屏幕，直接使用setGeometry or move会报错(QWindowsWindow::setGeometry: Unable to set geometry) & size显示不正确！
