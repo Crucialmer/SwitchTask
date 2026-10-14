@@ -37,26 +37,25 @@ namespace Theme {
     }
 
     // ---------- 切换器弹窗（Widget 面板）配色 ----------
-    // 浅色填充：半透明、偏暗一档的柔和灰白（α182）——通透感由填充 alpha 承载（真机上叠加窗口
-    // 模糊成毛玻璃；RDP/虚拟机等合成环境系统模糊时有时无，纯半透明观感依然成立）。
-    // 深色态维持原有通透暗调
-    inline QColor panelFill() { return isDark() ? QColor(25, 25, 25, 100) : QColor(246, 246, 246, 182); }
-    inline QColor panelStroke() { return isDark() ? QColor(255, 255, 255, 36) : QColor(0, 0, 0, 26); }
-    inline QColor labelColor() { return isDark() ? QColor(240, 240, 240) : QColor(34, 34, 34); }
-    inline QColor hoverFill() { return isDark() ? QColor(255, 255, 255, 36) : QColor(0, 0, 0, 18); }
+    // macOS 式「常暗 HUD」（2026-10-14 用户裁决 C）：切换器面板无论系统浅/深外观都用深色 HUD
+    // ——深底 + 浅色文字 + 浅色受光缘；且半透明浅色填充在真机浅色壁纸下会「浮回偏浅」，
+    // 常暗 HUD 在任何环境保持一致的深度。深色主题维持其原有通透暗调
+    inline QColor panelFill() { return isDark() ? QColor(25, 25, 25, 100) : QColor(58, 58, 58, 235); }
+    inline QColor panelStroke() { return isDark() ? QColor(255, 255, 255, 36) : QColor(255, 255, 255, 64); }
+    inline QColor labelColor() { return QColor(240, 240, 240); }
+    inline QColor hoverFill() { return QColor(255, 255, 255, 36); }
 
-    /// 选中底（马卡龙配色）：加深马卡龙蓝 #84BFFF（α245）——色相 + 明度双重对比，深浅色模式
-    /// 保持一致（品牌色语言）；无描环。演进：中性灰（v1.7 C 方案）→ α50 增强对比（v1.9）
-    /// → 引入马卡龙配色（v1.10 用户裁决 B）；叠底渲染 ≈ (134,190,252)
-    inline QColor selectionFill() { return QColor(132, 191, 255, 245); }
+    /// 选中底（马卡龙·婴儿蓝）：#A2D2FF（α245）——经典品牌色；深浅色模式保持一致；无描环。
+    /// v1.11 用户复核「蓝浅一档」：#84BFFF → #A2D2FF（深色 HUD 上更柔和）。叠底渲染 ≈ (158,204,247)
+    inline QColor selectionFill() { return QColor(162, 210, 255, 245); }
 
     // ---------- 面板背景材质（Apple 式细化：光影/颗粒/受光缘；2026-10-14 用户裁决）----------
-    /// 光影渐变：顶部提亮（受光面）
-    inline QColor panelGradTop() { return isDark() ? QColor(255, 255, 255, 14) : QColor(255, 255, 255, 18); }
-    /// 光影渐变：底部压沉（着地面；用户复核“再沉一点”）
-    inline QColor panelGradBottom() { return isDark() ? QColor(0, 0, 0, 30) : QColor(0, 0, 0, 20); }
+    /// 光影渐变：顶部提亮（受光面；常暗 HUD 与深色态同值）
+    inline QColor panelGradTop() { return QColor(255, 255, 255, 14); }
+    /// 光影渐变：底部压沉（着地面）
+    inline QColor panelGradBottom() { return QColor(0, 0, 0, 30); }
     /// 顶部内侧受光缘（细高光线）
-    inline QColor panelTopSheen() { return isDark() ? QColor(255, 255, 255, 60) : QColor(255, 255, 255, 76); }
+    inline QColor panelTopSheen() { return QColor(255, 255, 255, 60); }
 
     // ---------- 更新窗口配色 ----------
     /// 更新说明区底色（QSS 需设实底，圆角才生效）

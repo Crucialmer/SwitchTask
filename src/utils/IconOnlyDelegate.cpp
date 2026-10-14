@@ -21,8 +21,8 @@ void IconOnlyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     painter->setPen(Qt::NoPen); //取消边框
     // option.rect.size() == QListWidgetItem::sizeHint()
     if (option.state & QStyle::State_Selected) {
-        // 选中态：马卡龙·加深蓝方圆角底（#84BFFF，深浅色一致；v1.10 用户裁决 B 方案）——
-        // 无描环，色相 + 明度双重对比，选中一眼可辨
+        // 选中态：马卡龙·婴儿蓝方圆角底（#A2D2FF，深浅色一致；v1.11 用户复核「蓝浅一档」）——
+        // 无描环，深色 HUD 上柔和醒目
         painter->setBrush(selectedColor);
         painter->drawPath(Util::squirclePath(QRectF(option.rect).adjusted(1, 1, -1, -1))); // 内缩 1px 防边缘抗锯齿被裁
     } else if (option.state & QStyle::State_MouseOver) {
