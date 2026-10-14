@@ -531,7 +531,7 @@ bool Widget::prepareListWidget() {
     }
 
     // 初始选中行：首个 item 是前台窗口时选第二行（直接比对窗口句柄；因为有些情况：选中桌面 并不会产生一个 item）
-    // —— 面板宽度自适应与下方 setCurrentRow 共用同一次判定，避免两处重复调用 GetForegroundWindow 产生不一致
+    // —— 仅决定首次高亮项（Ctrl+Tab 语义：先选中“上一个窗口”）；面板宽度不依赖它（v1.14 起按全部标题定宽）
     const int initialRow = (winList.size() >= 2 && winList.at(0).hwnd == GetForegroundWindow()) ? 1 : 0;
 
     // calculate Geometry
@@ -554,16 +554,21 @@ bool Widget::prepareListWidget() {
         auto lwRect = lw->rect();
         auto thisRect = lwRect.marginsAdded(ListWidgetMargin);
 
-        // macOS 风格：面板宽度至少容纳“初始选中项”的完整标题（标题上限 560 逻辑px；超出部分由省略号处理），
-        // 使少量窗口 + 长标题的场景下文字无需截断；列表本身保持原宽、随后统一居中。
+        // macOS 风格：面板宽度至少容纳“本组全部任务标题”的最大宽度（标题上限 560 逻辑px；超出部分由省略号处理）。
+        // 用户裁决 B（2026-10-15）：定宽不再绑定“初始选中项”——同一组任务在任意前台状态下呼出宽度一致
+        // （此前按初始选中项定宽，同一组 2 任务因呼出时前台不同实测 208↔433 逻辑px 不一致）
         {
-            QString initialText = winList.at(initialRow).title;
-            if (initialText.isEmpty())
-                initialText = Util::getFileDescription(winList.at(initialRow).exePath);
-            if (!initialText.isEmpty()) {
-                constexpr int kLabelTextCap = 560; // 标题最大展示宽度（逻辑px，约 42 个汉字）
-                const QFontMetrics fm(ui->label->font());
-                const int wantW = qMin(fm.horizontalAdvance(initialText), kLabelTextCap) + 16; // 左右各留 8px
+            constexpr int kLabelTextCap = 560; // 标题最大展示宽度（逻辑px，约 42 个汉字）
+            const QFontMetrics fm(ui->label->font());
+            int maxTitleW = 0;
+            for (const auto& info: winList) {
+                QString text = info.title;
+                if (text.isEmpty())
+                    text = Util::getFileDescription(info.exePath);
+                maxTitleW = qMax(maxTitleW, fm.horizontalAdvance(text));
+            }
+            if (maxTitleW > 0) {
+                const int wantW = qMin(maxTitleW, kLabelTextCap) + 16; // 左右各留 8px
                 const int maxW = screen->availableGeometry().width() - 64; // 屏幕安全余量
                 thisRect.setWidth(qMax(thisRect.width(), qMin(wantW, maxW)));
             }
