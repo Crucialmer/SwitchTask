@@ -6,7 +6,6 @@
 #include <QMenu>
 #include <QSystemTrayIcon>
 #include <QActionGroup>
-#include <QDateTime>
 #include <QTimer>
 #include "Startup.h"
 #include "ConfigManager.h"
@@ -40,15 +39,16 @@ private:
         // 静默纪律：检查失败只记日志；提醒后仍由用户点击 Update 才下载安装（不静默替换文件）
         updateChecker = new UpdateChecker(this);
         connect(updateChecker, &UpdateChecker::newVersionFound, this, [this](const QString& ver) {
-            updateToastAt = QDateTime::currentMSecsSinceEpoch();
+            updateToastPending = true; // 点击“更新可用”气泡 → 进入更新对话框（见下方 messageClicked）
             showMessage("Update Available",
                         QString("SwitchTask v%1 is available — click to review.").arg(ver),
                         QSystemTrayIcon::Information, 10000);
         });
         connect(this, &QSystemTrayIcon::messageClicked, this, [this] {
-            // 仅当最近的通知是“更新可用”（≈气泡驻留时长内）才进入更新对话框；其它功能通知的点击无行为
-            if (updateToastAt != 0 && QDateTime::currentMSecsSinceEpoch() - updateToastAt <= 12000) {
-                updateToastAt = 0;
+            // 仅当“更新可用”提醒未被后续通知取代时才进入更新对话框。
+            // 气泡存活时长不定（实测远超显示参数），不能用时间窗判定——早先实现 12s 窗会把迟到的点击静默拒掉
+            if (updateToastPending) {
+                updateToastPending = false;
                 showUpdateDialog();
             }
         });
@@ -78,12 +78,14 @@ private:
             CFG.editConfigFile();
         });
         connect(&CFG, &ConfigManager::configEdited, this, [this] {
+            updateToastPending = false; // 其它通知取代“更新可用”提醒：其点击不再进入更新对话框
             this->showMessage("Config Edited", "auto reloaded");
         });
 
         act_startup->setCheckable(true);
         // triggered vs toggled: setChecked() will emit `toggled`, but not `triggered` (which is pure user action)
         connect(act_startup, &QAction::triggered, this, [this](bool checked) {
+            updateToastPending = false; // 同上：后续通知接管 messageClicked 语义
             Startup::toggle();
             if (Startup::isOn() == checked) // toggle 后缓存已重建（invalidateCache），此处直读缓存不阻塞
                 this->showMessage("auto Startup mode", checked ? "ON √" : "OFF ×");
@@ -122,6 +124,7 @@ private:
             });
 
             connect(monitorGroup, &QActionGroup::triggered, this, [this](QAction* act) {
+                updateToastPending = false; // 同上
                 auto monitor = static_cast<DisplayMonitor>(act->data().toInt());
                 CFG.setDisplayMonitor(monitor);
                 this->showMessage("Display Monitor Changed", act->text());
@@ -182,7 +185,8 @@ private:
     QMenu* menu = nullptr; // 托盘菜单（圆角 + 毛玻璃，随主题刷新）
     QMenu* menu_monitor = nullptr; // Display Monitor 子菜单
     UpdateChecker* updateChecker = nullptr; // 更新静默检查（B+D：启动 + 24h）
-    qint64 updateToastAt = 0; // 最近一次“更新可用”通知的时间戳（messageClicked 据此判定是否进入更新对话框）
+    bool updateToastPending = false; // “更新可用”提醒有效中（点击进入更新对话框；被其它通知取代时清除——
+                                     // 不用时间窗：气泡实际存活时长不定，实测晚于 12s 的点击会被时间窗拒掉）
 };
 
 #endif //WIN_SWITCHER_SYSTEMTRAY_H
