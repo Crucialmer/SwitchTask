@@ -44,10 +44,10 @@ namespace Theme {
     inline QColor panelStroke() { return isDark() ? QColor(255, 255, 255, 36) : QColor(0, 0, 0, 26); }
     inline QColor labelColor() { return isDark() ? QColor(240, 240, 240) : QColor(34, 34, 34); }
     inline QColor hoverFill() { return isDark() ? QColor(255, 255, 255, 36) : QColor(0, 0, 0, 18); }
-    inline QColor ringColor() { return isDark() ? QColor(255, 255, 255, 140) : QColor(255, 255, 255, 200); }
 
-    /// 品牌选中色（马卡龙·婴儿蓝）：深浅色模式保持一致，形成统一的选中语言
-    inline QColor selectionFill() { return brandColor(225); }
+    /// 选中底（macOS 风）：中性半透明——浅色模式黑色 10%、深色模式白色 17%，比悬停底略重一档；
+    /// 无描环（选中提示交给放大动效与底部标题）。用户裁决 2026-10-14（C 方案）
+    inline QColor selectionFill() { return isDark() ? QColor(255, 255, 255, 44) : QColor(0, 0, 0, 26); }
 
     // ---------- 更新窗口配色 ----------
     /// 更新说明区底色（QSS 需设实底，圆角才生效）

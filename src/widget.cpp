@@ -69,7 +69,7 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     // 本来为了去除图标选中变色样式，可以对Icon手动addPixmap(..., QIcon::Selected) or (& ~Qt::ItemIsSelectable)
     // 但是采用delegate后，就没必要了
     // will not take ownership of delegate
-    iconDelegate = new IconOnlyDelegate(lw, Theme::selectionFill(), Theme::hoverFill(), Theme::ringColor());
+    iconDelegate = new IconOnlyDelegate(lw, Theme::selectionFill(), Theme::hoverFill());
     lw->setItemDelegate(iconDelegate);
 
     // macOS 风格：选中项放大动效（0→1，约 110ms，OutCubic）——由选中变化与弹窗显示触发；
@@ -303,7 +303,7 @@ void Widget::applyTheme() {
     setWindowBlur(hWnd());
     ui->label->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::labelColor().name()));
     if (iconDelegate)
-        iconDelegate->setColors(Theme::selectionFill(), Theme::hoverFill(), Theme::ringColor());
+        iconDelegate->setColors(Theme::selectionFill(), Theme::hoverFill());
     // 面板配色缓存到成员：paintEvent 高频重绘（悬停/选中放大动效每帧 update）不再逐帧重读 QSettings
     panelFillColor = Theme::panelFill();
     panelStrokeColor = Theme::panelStroke();
@@ -326,10 +326,10 @@ void Widget::keyReleaseEvent(QKeyEvent* event) {
 void Widget::paintEvent(QPaintEvent*) { //不绘制会导致鼠标穿透背景
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
-    // macOS 风格：微圆角矩形背景（r=8，与 Windows 11 系统原生圆角弧度一致）+ 细描边
-    // ——不做过激的窗形裁剪：圆角由系统合成（表面圆角）自然呈现，观感统一
+    // macOS 风格：圆角矩形背景（r=12——更圆润的整面观感；用户裁决 2026-10-14 C 方案）+ 细描边
+    // ——不做过激的窗形裁剪：圆角由绘制路径呈现，1px 描边勾勒轮廓
     QPainterPath panel;
-    panel.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 8, 8);
+    panel.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 12, 12);
     painter.setPen(Qt::NoPen);
     painter.setBrush(panelFillColor); // 主题变更由 applyTheme() 同步，绘制路径零 QSettings 读取
     painter.drawPath(panel);
@@ -516,13 +516,15 @@ bool Widget::prepareListWidget() {
             }
         }
 
-        // macOS 风格：垂直留白对称——图标顶边距（上边距 + 图标内缩）与文字底边距相等；
-        // 标题字号变大时，底部留白随之增大（每次弹窗按当前字号实时计算）
+        // macOS 风格：垂直留白近似对称——图标顶边距（上边距 + 图标内缩）与文字底边距对应；
+        // 标题字号变大时，底部留白随之增大（每次弹窗按当前字号实时计算）。
+        // 用户裁决（2026-10-14）：文字下方到底边的留白较顶部再收窄一点点（顶部与图标-文字距离不动）
         {
             const auto fm = QFontMetrics(ui->label->font());
             const int iconInset = (lw->gridSize().width() - lw->iconSize().width()) / 2;
-            const int gapBelowText = ListWidgetMargin.top() + iconInset; // 目标等距值（= 图标顶边距）
-            const int bottomPad = qMax(0, gapBelowText - fm.descent()); // 可见文字底（基线附近）到面板底 ≈ gapBelowText
+            const int gapBelowText = ListWidgetMargin.top() + iconInset; // 基准等距值（= 图标顶边距）
+            constexpr int kBottomPadTrim = 6; // 底部留白再收窄的微调量（逻辑px；视觉平衡用）
+            const int bottomPad = qMax(0, gapBelowText - fm.descent() - kBottomPadTrim); // 可见文字底（基线附近）到面板底 ≈ 基准 - 微调
             thisRect.setHeight(ListWidgetMargin.top() + lw->gridSize().height() + kCellLabelGap + fm.height() + bottomPad);
         }
 
