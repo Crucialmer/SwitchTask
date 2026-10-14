@@ -22,13 +22,14 @@ public:
     explicit UpdateDialog(QWidget* parent = nullptr);
     ~UpdateDialog() override;
     static void verifyUpdate(const QCoreApplication& app);
+    /// 版本字符串解析（去 v 前缀 / 多余尾随 .0，保留至多 3 段）：更新对话框与静默检查（UpdateChecker）共用同一语义
+    static QVersionNumber normalizeVersion(const QString& ver);
 
 private:
     void applyTheme(); // 更新说明区随深浅色模式着色
     void fetchGithubReleaseInfo();
     void download(const QString& url, const QString& savePath);
     QString writeBat(const QString& sourceDir, const QString& targetDir) const;
-    static QVersionNumber normalizeVersion(const QString& ver);
     static QString toLocalTime(const QString& isoTime);
 
 signals:

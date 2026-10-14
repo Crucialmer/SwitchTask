@@ -1,5 +1,5 @@
 ﻿cmake_minimum_required(VERSION 3.21)
-project(SwitchTask VERSION 1.2.0) # 版本线基线 v1.0（2026-10-13 重置）；当前 v1.2.0
+project(SwitchTask VERSION 1.3.0) # 版本线基线 v1.0（2026-10-13 重置）；当前 v1.3.0
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -62,6 +62,8 @@ add_executable(${PROJECT_NAME} src/main.cpp
         header/utils/KeyboardHooker.h
         src/utils/TaskbarWheelHooker.cpp
         header/utils/TaskbarWheelHooker.h
+        src/utils/UpdateChecker.cpp
+        header/utils/UpdateChecker.h
         src/utils/QtWin.cpp
         header/utils/QtWin.h
         header/utils/ComInitializer.h

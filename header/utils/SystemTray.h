@@ -6,9 +6,11 @@
 #include <QMenu>
 #include <QSystemTrayIcon>
 #include <QActionGroup>
+#include <QDateTime>
 #include <QTimer>
 #include "Startup.h"
 #include "ConfigManager.h"
+#include "UpdateChecker.h"
 #include "UpdateDialog.h"
 #include "Theme.h"
 #include "setWindowBlur.h"
@@ -33,6 +35,24 @@ private:
         setToolTip(IsUserAnAdmin() ? "SwitchTask (admin)" : "SwitchTask");
         // 启动后延迟预热 Startup 缓存，首次弹出托盘菜单不再同步等 schtasks 子进程
         QTimer::singleShot(3000, this, [] { Startup::isOn(true); });
+
+        // 更新提示（用户裁决 B+D）：启动静默检查一次 + 每 24h 复查；发现新版本 → 托盘气泡，点击气泡进入更新对话框。
+        // 静默纪律：检查失败只记日志；提醒后仍由用户点击 Update 才下载安装（不静默替换文件）
+        updateChecker = new UpdateChecker(this);
+        connect(updateChecker, &UpdateChecker::newVersionFound, this, [this](const QString& ver) {
+            updateToastAt = QDateTime::currentMSecsSinceEpoch();
+            showMessage("Update Available",
+                        QString("SwitchTask v%1 is available — click to review.").arg(ver),
+                        QSystemTrayIcon::Information, 10000);
+        });
+        connect(this, &QSystemTrayIcon::messageClicked, this, [this] {
+            // 仅当最近的通知是“更新可用”（≈气泡驻留时长内）才进入更新对话框；其它功能通知的点击无行为
+            if (updateToastAt != 0 && QDateTime::currentMSecsSinceEpoch() - updateToastAt <= 12000) {
+                updateToastAt = 0;
+                showUpdateDialog();
+            }
+        });
+        updateChecker->start();
     }
 
     void setMenu(QWidget* parent = nullptr) {
@@ -51,11 +71,7 @@ private:
         auto* act_quit = new QAction("Quit", menu);
 
         connect(act_update, &QAction::triggered, this, [] {
-            // !对于UI窗体，不要用static变量(`static UpdateDialog dlg;`)，要么局部变量，要么指针
-            // ! static局部变量会在程序结束时析构 ! 析构时可能访问qApp资源，而qApp由于`qApp->quit()`已经被清理
-            // !导致报错（"No style available without QApplication!"）
-            static auto* dlg = new UpdateDialog;
-            dlg->show();
+            showUpdateDialog(); // 与“更新可用”通知点击共用同一入口
         });
 
         connect(act_settings, &QAction::triggered, this, [] {
@@ -155,9 +171,18 @@ private:
         m->setStyleSheet(Theme::menuStyleSheet());
     }
 
+    /// 打开更新对话框（托盘菜单与“更新可用”通知点击共用同一入口）
+    static void showUpdateDialog() {
+        // !不要用 static 局部变量对象：程序结束时析构可能访问已清理的 qApp 资源（"No style available without QApplication!"）
+        static auto* dlg = new UpdateDialog;
+        dlg->show();
+    }
+
 private:
     QMenu* menu = nullptr; // 托盘菜单（圆角 + 毛玻璃，随主题刷新）
     QMenu* menu_monitor = nullptr; // Display Monitor 子菜单
+    UpdateChecker* updateChecker = nullptr; // 更新静默检查（B+D：启动 + 24h）
+    qint64 updateToastAt = 0; // 最近一次“更新可用”通知的时间戳（messageClicked 据此判定是否进入更新对话框）
 };
 
 #endif //WIN_SWITCHER_SYSTEMTRAY_H
