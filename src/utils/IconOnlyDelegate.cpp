@@ -12,7 +12,9 @@ void IconOnlyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     // macOS 风格：选中项放大动效——仅“图标”随动画等比放大；选中底块恒为单元格大小，
     // 确保任何状态下都不溢出单元格（不裁切、不与相邻项重叠、不挤压底部标签）
     // 选择态即"当前项"（单选中列表），直接取绘制状态，免去向上游视图探取 currentIndex 的耦合
-    constexpr qreal kGrowMax = 0.15; // 图标最大放大比例（1 + 0.15；64px 图标放大后约 74px，仍完全落在 80px 单元格内）
+    constexpr qreal kGrowMax = 0.08; // 图标最大放大比例（1 + 0.08）：64px 图标放大后约 69px——
+                                     // 动效保留，同时选中底"环"可见宽度约 4.4px（原 0.15 时环仅 ~2px，
+                                     // 2026-10-14 用户复核"选中不明显"后调整：环宽翻倍，轮廓清晰）
     const bool isCurrent = option.state & QStyle::State_Selected;
     const qreal grow = (isCurrent && selectionGrow > 0.001) ? (1.0 + kGrowMax * selectionGrow) : 1.0;
 

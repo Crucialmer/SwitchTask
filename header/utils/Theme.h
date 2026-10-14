@@ -45,9 +45,10 @@ namespace Theme {
     inline QColor labelColor() { return isDark() ? QColor(240, 240, 240) : QColor(34, 34, 34); }
     inline QColor hoverFill() { return isDark() ? QColor(255, 255, 255, 36) : QColor(0, 0, 0, 18); }
 
-    /// 选中底（macOS 风）：中性半透明——浅色模式黑色 10%、深色模式白色 17%，比悬停底略重一档；
-    /// 无描环（选中提示交给放大动效与底部标题）。用户裁决 2026-10-14（C 方案）
-    inline QColor selectionFill() { return isDark() ? QColor(255, 255, 255, 44) : QColor(0, 0, 0, 26); }
+    /// 选中底（macOS 风）：中性半透明——浅色模式黑色 20%、深色模式白色 17%，比悬停底明显重一档；
+    /// 无描环（选中提示交给放大动效与底部标题）。用户裁决 2026-10-14（C 方案）；
+    /// 2026-10-14 复核：中性化后选中与背景对比偏弱、不易辨认——浅色 α26 → α50 增强
+    inline QColor selectionFill() { return isDark() ? QColor(255, 255, 255, 44) : QColor(0, 0, 0, 50); }
 
     // ---------- 面板背景材质（Apple 式细化：光影/颗粒/受光缘；2026-10-14 用户裁决）----------
     /// 光影渐变：顶部提亮（受光面）
