@@ -39,8 +39,9 @@ namespace Theme {
     // ---------- 切换器弹窗（Widget 面板）配色 ----------
     // macOS 式「常暗 HUD」（2026-10-14 用户裁决 C）：切换器面板无论系统浅/深外观都用深色 HUD
     // ——深底 + 浅色文字 + 浅色受光缘；且半透明浅色填充在真机浅色壁纸下会「浮回偏浅」，
-    // 常暗 HUD 在任何环境保持一致的深度。深色主题维持其原有通透暗调
-    inline QColor panelFill() { return isDark() ? QColor(25, 25, 25, 100) : QColor(58, 58, 58, 235); }
+    // 常暗 HUD 在任何环境保持一致的深度。深色主题维持其原有通透暗调。
+    // v1.12 复核：背景再淡一点点（基色 58 → 68，叠底渲染 ≈54 → ≈64，仍在 macOS HUD 观感带内）
+    inline QColor panelFill() { return isDark() ? QColor(25, 25, 25, 100) : QColor(68, 68, 68, 235); }
     inline QColor panelStroke() { return isDark() ? QColor(255, 255, 255, 36) : QColor(255, 255, 255, 64); }
     inline QColor labelColor() { return QColor(240, 240, 240); }
     inline QColor hoverFill() { return QColor(255, 255, 255, 36); }
