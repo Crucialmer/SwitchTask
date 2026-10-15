@@ -1,4 +1,4 @@
-﻿#include "../header/widget.h"
+#include "../header/widget.h"
 #include "ui_Widget.h"
 #include "utils/Util.h"
 #include <QDebug>
@@ -71,7 +71,7 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     // 本来为了去除图标选中变色样式，可以对Icon手动addPixmap(..., QIcon::Selected) or (& ~Qt::ItemIsSelectable)
     // 但是采用delegate后，就没必要了
     // will not take ownership of delegate
-    iconDelegate = new IconOnlyDelegate(lw, Theme::selectionFill(), Theme::hoverFill());
+    iconDelegate = new IconOnlyDelegate(lw, Theme::selectionFill(), Theme::hoverFill(), Theme::selectionStroke());
     lw->setItemDelegate(iconDelegate);
 
     // macOS 风格：选中项放大动效（0→1，约 110ms，OutCubic）——由选中变化与弹窗显示触发；
@@ -207,11 +207,25 @@ void Widget::keyPressEvent(QKeyEvent* event) {
 }
 
 bool Widget::forceShow() {
-    setWindowOpacity(0.005); // 减少闪烁发生(因Qt::WA_TranslucentBackground) in showMinimized()
-    showMinimized();
-    showNormal();
-    setWindowOpacity(1);
-    startSelectionGrow(); // macOS 风格：弹出时选中项放大登场（每次呼出/抢回前台播放一次）
+    // 优先采用无动画闪烁的焦点获取机制：
+    // 模拟空按键输入以获得 Windows 前台转移许可，避免 showMinimized/showNormal 触发 DWM 最小化恢复动画和闪烁
+    INPUT input = {.type = INPUT_KEYBOARD};
+    SendInput(1, &input, sizeof(INPUT));
+
+    SetWindowPos(hWnd(), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    SetForegroundWindow(hWnd());
+    show();
+    raise();
+    activateWindow();
+
+    // 仅当常规手段被拦截且依然未取得前台时，才做最小化-恢复的强攻兜底
+    if (!isForeground()) {
+        setWindowOpacity(0.005);
+        showMinimized();
+        showNormal();
+        setWindowOpacity(1);
+    }
+    startSelectionGrow(); // macOS 风格：弹出时选中项胶囊弹性登场
     return isForeground();
 }
 
@@ -232,45 +246,44 @@ void Widget::showLabelForItem(QListWidgetItem* item) {
     QString text = info.title;
     if (text.isEmpty())
         text = Util::getFileDescription(info.exePath);
-    // macOS 风格：标题超出面板可用宽度时中部省略（…）——此前直接 setText 时，超宽文本会左对齐并被面板右缘硬切
-    const int maxTextWidth = qMax(40, this->width() - 16); // 距面板左右缘各留 8px
+
+    // macOS 风格：标题超出面板可用宽度时中部省略（…）
+    const int maxTextWidth = qMax(40, this->width() - 32); // 距面板左右缘各留 16px 呼吸留白
     const QFontMetrics fm(ui->label->font());
     ui->label->setText(fm.elidedText(text, Qt::ElideMiddle, maxTextWidth));
     ui->label->adjustSize();
 
-    auto itemRect = lw->visualItemRect(item);
-    const auto center = lw->mapTo(this, itemRect.center());
+    // macOS 核心规范：底部标题水平【绝对居中】，不随选中项左右跳动抖动！
     auto labelRect = ui->label->rect();
-    // 垂直：紧贴图标单元格下方 kCellLabelGap 处（面板底部留白由 prepareListWidget 的“等距”规则确定）
-    labelRect.moveTop(center.y() + itemRect.height() / 2 + kCellLabelGap);
-    labelRect.moveLeft(center.x() - labelRect.width() / 2);
-
-    auto bound = this->rect().marginsRemoved({8, 0, 8, 0});
-    labelRect.moveRight(qMin(labelRect.right(), bound.right()));
-    labelRect.moveLeft(qMax(labelRect.left(), bound.left())); // 兜底夹取（省略后必然满足，防任何越界）
+    labelRect.moveTop(lw->y() + lw->height() + kCellLabelGap);
+    labelRect.moveLeft((this->width() - labelRect.width()) / 2);
 
     ui->label->move(labelRect.topLeft());
 }
 
 void Widget::setupLabelFont() {
     static auto reloadLabelFontCfg = [this] {
-        const QStringList Fonts = {"Microsoft YaHei UI", "Microsoft YaHei", "Consolas"}; // fallback
+        const QStringList Fonts = {"Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Consolas"}; // 现代排版优先
         auto labelFont = ui->label->font();
-        auto fontSize = CFG.get("label/font_size", 10).toDouble(); // 支持小数，如 10.5（100% 缩放下即 14px）
+        auto fontSize = CFG.get("label/font_size", 10.5).toDouble(); // 默认 10.5pt（100% 缩放下即 14px，视觉更饱满清晰）
         if (fontSize <= 0)
-            fontSize = 10; // 防呆：非法值回退默认
+            fontSize = 10.5;
         labelFont.setPointSizeF(fontSize);
         auto defaultFF = QStringList{CFG.get("label/font_family", Fonts[0]).toString()};
         labelFont.setFamilies(defaultFF << Fonts.mid(1));
-        // font_weight 可选：数字(100~900，400=常规 500=中等 600=半粗 700=粗体) 或 bold/normal；不写=默认粗体(bold)
-        const auto weightCfg = CFG.get("label/font_weight", "bold").toString().trimmed().toLower();
-        int weight = 700; // 默认加粗（bold）
+
+        // 默认 Medium (500) 或 SemiBold (600)，排版更加细腻舒适，摆脱 YaHei Bold 700 的厚重粗笨
+        const auto weightCfg = CFG.get("label/font_weight", "500").toString().trimmed().toLower();
+        int weight = 500;
         if (!weightCfg.isEmpty()) {
-            weight = -1;
             if (weightCfg == "bold" || weightCfg == "b")
                 weight = 700;
             else if (weightCfg == "normal" || weightCfg == "regular" || weightCfg == "n")
                 weight = 400;
+            else if (weightCfg == "medium" || weightCfg == "m")
+                weight = 500;
+            else if (weightCfg == "semibold" || weightCfg == "demibold")
+                weight = 600;
             else {
                 bool ok = false;
                 const int num = weightCfg.toInt(&ok);
@@ -278,8 +291,8 @@ void Widget::setupLabelFont() {
                     weight = num;
             }
             if (weight <= 0) {
-                weight = 700; // 非法值：回退默认粗体
-                qWarning() << "Invalid label/font_weight (expect 100~900/bold/normal):" << weightCfg;
+                weight = 500;
+                qWarning() << "Invalid label/font_weight (expect 100~900/bold/medium/normal):" << weightCfg;
             }
         }
         labelFont.setWeight(QFont::Weight(weight));
@@ -297,16 +310,11 @@ void Widget::setupLabelFont() {
 
 /// 应用当前深浅色主题：底部标题颜色、列表选中/悬停/描边色、面板与列表重绘
 void Widget::applyTheme() {
-    // 窗口材质：磨砂模糊（BLURBEHIND）——透明窗口 + 模糊在真机上呈毛玻璃观感。
-    // 注：2026-10-14 实测，ACRYLICBLURBEHIND（亚克力）在部分合成环境（RDP/虚拟 GPU）会被系统
-    // 渲染为纯色实心层（忽略染色 alpha），把半透明填充的通透感整个盖死——故不启用；通透感由
-    // 面板填充的 alpha 承载（系统不支持模糊时自动降级为纯半透明，观感依然成立）。
-    // SetWindowCompositionAttribute 幂等——每次主题变更重新应用
+    // 窗口材质：支持 Windows 11 硬件加速瞬态亚克力 + Win10 BLURBEHIND 兜底
     setWindowBlur(hWnd());
     ui->label->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::labelColor().name()));
     if (iconDelegate)
-        iconDelegate->setColors(Theme::selectionFill(), Theme::hoverFill());
-    // 面板配色缓存到成员：paintEvent 高频重绘（悬停/选中放大动效每帧 update）不再逐帧重读 QSettings
+        iconDelegate->setColors(Theme::selectionFill(), Theme::hoverFill(), Theme::selectionStroke());
     panelFillColor = Theme::panelFill();
     panelStrokeColor = Theme::panelStroke();
     if (lw)
@@ -325,69 +333,40 @@ void Widget::keyReleaseEvent(QKeyEvent* event) {
     QWidget::keyReleaseEvent(event);
 }
 
-/// 材质颗粒纹理笔刷（Apple 式细颗粒：质感 + 防色带）。
-/// 固定种子 → 纹理跨运行稳定；绘制侧按设备像素比缩小 → 1 颗粒 = 1 设备像素（高 DPI 下依旧细腻）
-static const QBrush& grainTextureBrush()
-{
-    static QBrush brush = [] {
-        QImage tex(96, 96, QImage::Format_ARGB32_Premultiplied);
-        tex.fill(Qt::transparent);
-        QRandomGenerator rng(20261014); // 固定种子
-        for (int y = 0; y < tex.height(); ++y)
-            for (int x = 0; x < tex.width(); ++x) {
-                const int v = int(rng.bounded(5)) - 2; // -2..2 级亮度
-                if (v == 0)
-                    continue;
-                const int a = qAbs(v) * 3; // 3~6/255：细而低调
-                tex.setPixelColor(x, y, QColor(v > 0 ? 255 : 0, v > 0 ? 255 : 0, v > 0 ? 255 : 0, a));
-            }
-        return QBrush(tex);
-    }();
-    return brush;
-}
-
-void Widget::paintEvent(QPaintEvent*) { //不绘制会导致鼠标穿透背景
+void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
-    // macOS 风格：圆角矩形背景（r=12——更圆润的整面观感；用户裁决 2026-10-14 C 方案）+ 细描边
-    // ——不做过激的窗形裁剪：圆角由绘制路径呈现，1px 描边勾勒轮廓
-    QPainterPath panel;
-    panel.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 12, 12);
+
+    // macOS 风格：Apple G2 连续曲率平滑圆角（外面板 r=20，展现舒展大气的 macOS 现代 HUD 视觉规范）+ 细描边
+    QPainterPath panel = Util::smoothRoundedRectPath(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 20);
     painter.setPen(Qt::NoPen);
     painter.setBrush(panelFillColor); // 主题变更由 applyTheme() 同步，绘制路径零 QSettings 读取
     painter.drawPath(panel);
-    // Apple 式背景材质细化（2026-10-14 裁决）之一：光影渐变（上亮→下沉）——“光从上打下来”的材质层次
+
+    // Apple 式背景材质层次：漫反射光影渐变（上亮→下沉）——深邃通透的玻璃纵深感
     {
         QLinearGradient shade(0, 0, 0, height());
         shade.setColorAt(0.0, Theme::panelGradTop());
-        shade.setColorAt(0.5, Qt::transparent);
+        shade.setColorAt(0.45, Qt::transparent);
         shade.setColorAt(0.75, Qt::transparent);
         shade.setColorAt(1.0, Theme::panelGradBottom());
         painter.setBrush(shade);
         painter.drawPath(panel);
     }
-    // 之二：细颗粒（材质触感 + 防渐变色带）；1 颗粒 = 1 设备像素（用户复核“再细一点”）
+
+    // 顶部受光缘（内侧细微高光，随平滑圆角自然过渡与淡出）
     {
-        QBrush grain = grainTextureBrush();
-        const qreal dpr = devicePixelRatioF();
-        grain.setTransform(QTransform::fromScale(1.0 / dpr, 1.0 / dpr));
-        painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
-        painter.setBrush(grain);
-        painter.drawPath(panel);
-        painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    }
-    // 之三：顶部受光缘（内侧细高光线，随圆角弯曲；渐变画笔只覆盖顶部数像素 → 两侧自然淡出）
-    {
-        QPainterPath inner;
-        inner.addRoundedRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5), 11, 11);
-        QLinearGradient edge(0, 0, 0, 3);
+        QPainterPath inner = Util::smoothRoundedRectPath(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5), 19);
+        QLinearGradient edge(0, 0, 0, 4);
         edge.setColorAt(0.0, Theme::panelTopSheen());
         edge.setColorAt(1.0, Qt::transparent);
-        painter.setPen(QPen(QBrush(edge), 2));
+        painter.setPen(QPen(QBrush(edge), 1.5));
         painter.setBrush(Qt::NoBrush);
         painter.drawPath(inner);
     }
-    painter.setPen(QPen(panelStrokeColor, 1)); // 细描边：在明/暗壁纸上勾勒面板轮廓（随主题切换）
+
+    // 细微外轮廓描边：在明/暗壁纸上清晰勾勒通透面板
+    painter.setPen(QPen(panelStrokeColor, 1));
     painter.drawPath(panel);
 }
 
@@ -502,6 +481,7 @@ bool Widget::prepareListWidget() {
             qInfo() << "Adaptive icons:" << count << "apps -> cell" << cell << ", icon" << icon;
     }
 
+    lw->setUpdatesEnabled(false); // 批量装配期间关闭视图重绘，消除每次 addItem 触发的多余布局计算与刷新开销
     lw->clear();
     for (auto& info: winList) {
         // 图标：统一应用图标（jumbo 预取缓存，锐利）；
@@ -529,6 +509,7 @@ bool Widget::prepareListWidget() {
 //        item->setFlags(item->flags() & ~Qt::ItemIsSelectable); // 不可选中
         lw->addItem(item);
     }
+    lw->setUpdatesEnabled(true);
 
     // 初始选中行：首个 item 是前台窗口时选第二行（直接比对窗口句柄；因为有些情况：选中桌面 并不会产生一个 item）
     // —— 仅决定首次高亮项（Ctrl+Tab 语义：先选中“上一个窗口”）；面板宽度不依赖它（v1.14 起按全部标题定宽）

@@ -1,4 +1,4 @@
-﻿#include "utils/IconOnlyDelegate.h"
+#include "utils/IconOnlyDelegate.h"
 #include "widget.h"
 #include "utils/Util.h"
 #include <QPen>
@@ -7,44 +7,39 @@
 
 void IconOnlyDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const {
     painter->setRenderHint(QPainter::Antialiasing);
-    painter->setRenderHint(QPainter::SmoothPixmapTransform); // 窗口图标源图较小（通常 32px），放大绘制时平滑处理
+    painter->setRenderHint(QPainter::SmoothPixmapTransform);
 
-    // macOS 风格：选中项放大动效——仅“图标”随动画等比放大；选中底块恒为单元格大小，
-    // 确保任何状态下都不溢出单元格（不裁切、不与相邻项重叠、不挤压底部标签）
-    // 选择态即"当前项"（单选中列表），直接取绘制状态，免去向上游视图探取 currentIndex 的耦合
-    constexpr qreal kGrowMax = 0.08; // 图标最大放大比例（1 + 0.08）：64px 图标放大后约 69px——
-                                     // 动效保留，同时选中底"环"可见宽度约 4.4px（原 0.15 时环仅 ~2px，
-                                     // 2026-10-14 用户复核"选中不明显"后调整：环宽翻倍，轮廓清晰）
-    const bool isCurrent = option.state & QStyle::State_Selected;
-    const qreal grow = (isCurrent && selectionGrow > 0.001) ? (1.0 + kGrowMax * selectionGrow) : 1.0;
+    // macOS 风格：连续曲率平滑圆角（与外面板保持相同几何语言，内缩防抗锯齿裁切）
+    const auto rectF = QRectF(option.rect).adjusted(2, 2, -2, -2);
+    const auto squircle = Util::smoothRoundedRectPath(rectF, 14);
 
-    painter->setPen(Qt::NoPen); //取消边框
-    // option.rect.size() == QListWidgetItem::sizeHint()
     if (option.state & QStyle::State_Selected) {
-        // 选中态：马卡龙·婴儿蓝方圆角底（#A2D2FF，深浅色一致；v1.11 用户复核「蓝浅一档」）——
-        // 无描环，深色 HUD 上柔和醒目
-        painter->setBrush(selectedColor);
-        painter->drawPath(Util::squirclePath(QRectF(option.rect).adjusted(1, 1, -1, -1))); // 内缩 1px 防边缘抗锯齿被裁
-    } else if (option.state & QStyle::State_MouseOver) {
-        painter->setBrush(hoverColor);
-        painter->drawPath(Util::squirclePath(option.rect));
-    }
-
-    // 居中绘制图标（选中项按动画进度围绕单元格中心放大）
-    auto icon = qvariant_cast<QIcon>(index.data(Qt::DecorationRole));
-    if (!icon.isNull()) {
         painter->save();
-        if (grow > 1.0) {
-            const auto c = option.rect.center();
+        // 触觉弹性动效作用于高亮胶囊，而非位图图标本身，杜绝图标非整数倍缩放导致的画质发糊
+        if (selectionGrow < 0.999 && selectionGrow > 0.001) {
+            const auto c = rectF.center();
             painter->translate(c);
-            painter->scale(grow, grow);
+            const qreal s = 0.94 + 0.06 * selectionGrow;
+            painter->scale(s, s);
             painter->translate(-c);
         }
+        // 选中态：macOS 风格中性光晕白胶囊 + 1px 细高光轮廓
+        const QColor stroke = selectedStrokeColor.isValid() ? selectedStrokeColor : QColor(255, 255, 255, 75);
+        painter->setPen(QPen(stroke, 1));
+        painter->setBrush(selectedColor);
+        painter->drawPath(squircle);
+        painter->restore();
+    } else if (option.state & QStyle::State_MouseOver) {
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(hoverColor);
+        painter->drawPath(squircle);
+    }
+
+    // 居中绘制图标：macOS 原则——图标保持 1:1 原生像素绝对清晰锐利
+    auto icon = qvariant_cast<QIcon>(index.data(Qt::DecorationRole));
+    if (!icon.isNull()) {
         QRect iconRect{{}, option.decorationSize}; // QListWidget::iconSize()
         iconRect.moveCenter(option.rect.center());
         icon.paint(painter, iconRect);
-        painter->restore();
     }
-
-    // 每个窗口独立展示，无"窗口数量"角标
 }

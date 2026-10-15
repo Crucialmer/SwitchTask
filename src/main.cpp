@@ -1,4 +1,4 @@
-﻿#include <QApplication>
+#include <QApplication>
 #include <windows.h>
 #include <QTimer>
 #include <QMessageBox>
@@ -78,19 +78,15 @@ int main(int argc, char* argv[]) {
                 // 顺序是ForegroundStaging -> XamlExplorerHostIslandWindow，不需要都检测，否则会重复
                 // 且：XamlExplorerHostIslandWindow 会导致误检测（某些系统版本，任务栏app窗口>1时，点击窗口）
                 qDebug() << "任务切换 detected!" << className;
-                int t = 0;
-                do {
-                    // 等待Windows的任务切换窗口完全获取焦点（显示），再弹出本程序抢夺焦点，否则可能会被抢回去，导致需要retry
-                    // retry会导致一个问题：（VMWare中）Alt+Tab唤出SwitchTask导致retry后，SwitchTask显示时会同时显示Windows中的最后一个焦点窗口（例如资源管理器）
-                    // ！但是，这个问题只有在Release模式+管理员权限下才会出现，Debug模式下不会出现，离谱
-                    Sleep(10);
-                    // 貌似如果不是本进程第一个窗口的话，这招无法前置，比如你在这里new Widget
-                    winSwitcher->requestShow();
-                    t++;
-                    if (t > 1)
-                        qDebug() << "Retry" << t;
-                    Sleep(10);
-                } while (!winSwitcher->isForeground() && t < 5);
+                // 非阻塞式异步重试，彻底移除主线程 Sleep(10)，避免冻结 Qt 事件循环与界面绘制
+                winSwitcher->requestShow();
+                for (int t = 1; t <= 4; ++t) {
+                    QTimer::singleShot(15 * t, winSwitcher, [winSwitcher]() {
+                        if (!winSwitcher->isForeground()) {
+                            winSwitcher->requestShow();
+                        }
+                    });
+                }
             }
         }
     });

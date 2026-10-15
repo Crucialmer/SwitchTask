@@ -1,4 +1,4 @@
-﻿#include "utils/TaskbarWheelHooker.h"
+#include "utils/TaskbarWheelHooker.h"
 #include <QTimer>
 #include <QTime>
 #include <atomic>
@@ -91,45 +91,29 @@ TaskbarWheelHooker::TaskbarWheelHooker() {
     connect(this, &TaskbarWheelHooker::rawWheelEvent, this, &TaskbarWheelHooker::processWheelEvent,
             Qt::QueuedConnection);
 
-    auto* timer = new QTimer(this);
-    timer->callOnTimeout(this, [this]() {
-        HWND topLevelHwnd = Util::topWindowFromPoint(Util::getCursorPos());
-        bool isTaskbar = Util::isTaskbarWindow(topLevelHwnd);
-        if (isLastTaskbar != isTaskbar) {
-            if (isTaskbar) {
-                // 依赖事件循环。安装失败则回滚状态、下个 tick 重试（限 5 次）——
-                // 原实现失败即“本次会话永久失效”，且对小概率失败无自愈
-                if (hookFailCount < 5) {
-                    h_mouse = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) mouseProc, GetModuleHandle(nullptr), 0);
-                    if (h_mouse) {
-                        hookFailCount = 0;
-                        isLastTaskbar = true;
-                        qDebug() << "#Enter Taskbar" << QTime::currentTime();
-                    } else {
-                        if (hookFailCount++ == 0)
-                            qCritical() << "Failed to install h_mouse";
-                        if (hookFailCount >= 5)
-                            qWarning() << "h_mouse install failed 5 times; taskbar wheel disabled until next enter";
-                    }
-                } else {
-                    isLastTaskbar = true; // 本轮已放弃：保持状态避免每 tick 重入
-                }
-            } else {
-                UnhookWindowsHookEx(h_mouse);
-                h_mouse = nullptr;
-                hookFailCount = 0; // 离开任务栏时复位：下次进入重新尝试
-                isLastTaskbar = false;
-                qDebug() << "#Leave Taskbar" << QTime::currentTime();
-                emit leaveTaskbar();
-            }
-        }
+    // 单次安装低级鼠标钩子：回调内部只在监听到 WM_MOUSEWHEEL 时做极轻量窗口判定（非滚轮消息零开销直接放行）。
+    // 彻底移除每 50ms 唤醒一次 CPU 的死循环轮询与频繁装卸钩子，消除笔记本电量消耗与 Win32 钩子链抖动。
+    h_mouse = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) mouseProc, GetModuleHandle(nullptr), 0);
+    if (!h_mouse) {
+        qCritical() << "Failed to install taskbar mouse hook!";
+    }
+
+    // 任务栏空闲超时：滚动停止 800ms 后发出 leaveTaskbar 信号，清理同组窗口顺序
+    auto* idleTimer = new QTimer(this);
+    idleTimer->setSingleShot(true);
+    idleTimer->setInterval(800);
+    connect(idleTimer, &QTimer::timeout, this, [this]() {
+        emit leaveTaskbar();
     });
-    timer->start(50);
+    connect(this, &TaskbarWheelHooker::rawWheelEvent, idleTimer, [idleTimer]() {
+        idleTimer->start();
+    });
 }
 
 TaskbarWheelHooker::~TaskbarWheelHooker() {
     if (h_mouse) {
         UnhookWindowsHookEx(h_mouse);
+        h_mouse = nullptr;
         qDebug() << "MouseHooker uninstalled";
     }
     TaskbarWheelHooker::instance = nullptr;

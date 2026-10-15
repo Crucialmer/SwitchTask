@@ -37,26 +37,25 @@ namespace Theme {
     }
 
     // ---------- 切换器弹窗（Widget 面板）配色 ----------
-    // macOS 式「常暗 HUD」：切换器面板无论系统浅/深外观都用同一套深色 HUD
-    // ——深底 + 浅色文字 + 浅色受光缘；且半透明浅色填充在真机浅色壁纸下会「浮回偏浅」，
-    // 常暗 HUD 在任何环境保持一致。v1.12 复核浅色再淡一档（基色 68）；v1.13 用户裁决 A：
-    // 深色外观并入同一深度（原近黑 (25,25,25,α100) 在深色环境下与背景发糊，缺乏层次）
-    inline QColor panelFill() { return QColor(68, 68, 68, 235); }
-    inline QColor panelStroke() { return QColor(255, 255, 255, 64); }
-    inline QColor labelColor() { return QColor(240, 240, 240); }
-    inline QColor hoverFill() { return QColor(255, 255, 255, 36); }
+    // macOS 式「深色通透 HUD」：切换器面板采用深石墨半透明质感，配合 Win11 硬件加速瞬态亚克力
+    // ——深底 + 浅色文字 + 细微受光缘。透明度与色彩经过精确微调，兼顾对比度与透气感
+    inline QColor panelFill() { return QColor(28, 28, 32, 205); }
+    inline QColor panelStroke() { return QColor(255, 255, 255, 38); }
+    inline QColor labelColor() { return QColor(245, 245, 247); }
+    inline QColor hoverFill() { return QColor(255, 255, 255, 25); }
 
-    /// 选中底（马卡龙·婴儿蓝）：#A2D2FF（α245）——经典品牌色；深浅色模式保持一致；无描环。
-    /// v1.11 用户复核「蓝浅一档」：#84BFFF → #A2D2FF（深色 HUD 上更柔和）。叠底渲染 ≈ (158,204,247)
-    inline QColor selectionFill() { return QColor(162, 210, 255, 245); }
+    /// 选中底：macOS 风格中性光晕白胶囊（半透明乳白）+ 细高光描边，
+    /// 清晰辨识当前项，同时让窗口应用图标作为视觉主角，拒绝生硬实色块遮盖
+    inline QColor selectionFill() { return QColor(255, 255, 255, 48); }
+    inline QColor selectionStroke() { return QColor(255, 255, 255, 75); }
 
-    // ---------- 面板背景材质（Apple 式细化：光影/颗粒/受光缘；2026-10-14 用户裁决）----------
-    /// 光影渐变：顶部提亮（受光面；常暗 HUD 与深色态同值）
-    inline QColor panelGradTop() { return QColor(255, 255, 255, 14); }
-    /// 光影渐变：底部压沉（着地面）
-    inline QColor panelGradBottom() { return QColor(0, 0, 0, 30); }
-    /// 顶部内侧受光缘（细高光线）
-    inline QColor panelTopSheen() { return QColor(255, 255, 255, 60); }
+    // ---------- 面板背景材质（Apple 式细化：光影/受光缘）----------
+    /// 光影渐变：顶部微提亮（环境漫反射层）
+    inline QColor panelGradTop() { return QColor(255, 255, 255, 18); }
+    /// 光影渐变：底部沉降
+    inline QColor panelGradBottom() { return QColor(0, 0, 0, 26); }
+    /// 顶部内侧受光缘（细高光线，随平滑圆角自然淡出）
+    inline QColor panelTopSheen() { return QColor(255, 255, 255, 65); }
 
     // ---------- 更新窗口配色 ----------
     /// 更新说明区底色（QSS 需设实底，圆角才生效）

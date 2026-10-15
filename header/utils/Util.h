@@ -1,4 +1,4 @@
-﻿#ifndef WIN_SWITCHER_UTIL_H
+#ifndef WIN_SWITCHER_UTIL_H
 #define WIN_SWITCHER_UTIL_H
 
 #include <Windows.h>
@@ -46,6 +46,8 @@ namespace Util {
     POINT getCursorPos();
     HWND getCurrentTaskListThumbnailWnd();
     bool isTaskbarWindow(HWND hwnd);
+    /// Apple 连续曲率平滑圆角（G2 连续性 squircle）：兼顾直边与拐角平滑过渡，用于面板与选中胶囊
+    QPainterPath smoothRoundedRectPath(const QRectF& rect, qreal radius);
     /// 超椭圆（squircle）路径：连续曲率圆角，macOS 风格方圆角（用于选中底绘制）
     QPainterPath squirclePath(const QRectF& rect, qreal exponent = 5.0);
 } // Util
