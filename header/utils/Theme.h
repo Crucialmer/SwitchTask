@@ -82,6 +82,20 @@ namespace Theme {
         const QColor selText = QColor(255, 255, 255);
         const QString checkIcon = dark ? QStringLiteral(":/img/checkmark-dark.svg") : QStringLiteral(":/img/checkmark-light.svg");
 
+        // 字体族：默认简体中文 Windows 系统默认字体 “Microsoft YaHei UI”（微软雅黑），兼顾备用字体；
+        // 同时支持在 config.ini [menu] 节通过 font_family 自由定制
+        const auto customFontFamily = CFG.get("menu/font_family", "").toString().trimmed();
+        QString fontFamily;
+        if (!customFontFamily.isEmpty()) {
+            if (customFontFamily.contains('\'') || customFontFamily.contains('"') || customFontFamily.contains(',')) {
+                fontFamily = customFontFamily + QStringLiteral(", 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif");
+            } else {
+                fontFamily = QStringLiteral("'%1', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif").arg(customFontFamily);
+            }
+        } else {
+            fontFamily = QStringLiteral("'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI Variable Text', 'Segoe UI', -apple-system, sans-serif");
+        }
+
         // 字体加粗与协调：默认 bold (700) 饱满扎实，同时支持在 config.ini [menu] 节通过 font_weight / font_size 自由定制
         const auto weightRaw = CFG.get("menu/font_weight", "bold").toString().trimmed().toLower();
         int weight = 700; // 默认 bold (700)
@@ -100,20 +114,20 @@ namespace Theme {
                    "  border: 1px solid %2;"
                    "  border-radius: 10px;"
                    "  padding: 5px;"
-                   "  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', -apple-system, sans-serif;"
+                   "  font-family: @FONT_FAMILY@;"
                    "  font-size: %3px;"
                    "  font-weight: %4;"
                    "}"
                    "#menuHeaderWidget { background: transparent; }"
                    "#menuHeaderTitle {"
-                   "  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', -apple-system, sans-serif;"
+                   "  font-family: @FONT_FAMILY@;"
                    "  font-size: %3px;"
                    "  font-weight: %4;"
                    "  color: %5;"
                    "  background: transparent;"
                    "}"
                    "#menuHeaderVersion {"
-                   "  font-family: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, sans-serif;"
+                   "  font-family: @FONT_FAMILY@;"
                    "  font-size: 11px;"
                    "  font-weight: 500;"
                    "  color: %6;"
@@ -140,6 +154,7 @@ namespace Theme {
             .arg(css(bg), css(border), QString::number(fontSize), QString::number(weight), css(text), css(disabled), css(badgeBg), css(selBg), css(selText));
         qss.replace("@SEP@", css(separator));
         qss.replace("@CHK@", checkIcon);
+        qss.replace("@FONT_FAMILY@", fontFamily);
         return qss;
     }
 } // namespace Theme

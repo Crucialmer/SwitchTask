@@ -84,17 +84,19 @@
 
 ```ini
 [label]
-font_family = "Segoe UI Variable Display"
+font_family = "Microsoft YaHei UI"
 font_size = 10.5
-font_weight = 500
+font_weight = bold
 
 [menu]
+font_family = "Microsoft YaHei UI"
 font_weight = bold
 font_size = 13
 ```
 
+> `font_family` 字体族：弹出窗口（`[label]`）与托盘菜单（`[menu]`）均默认使用简体中文系统默认字体 **`Microsoft YaHei UI`（微软雅黑）**，支持在配置文件中自由定制（如 `"Segoe UI"`, `"PingFang SC"` 等）。
 > `font_size` 支持小数，如 `10.5`（100% 缩放下恰好为 14px，显示更清晰）。
-> `font_weight` 字重：支持 `400` 常规 / `500` 中等 / `600` 半粗 / `700` 粗体，或 `normal` / `medium` / `bold`。托盘菜单 `[menu]` 默认以 `bold`（700）饱满字重协调渲染，支持在配置文件中随心定制。
+> `font_weight` 字重：支持 `400` 常规 / `500` 中等 / `600` 半粗 / `700` 粗体，或 `normal` / `medium` / `bold`。弹出窗口与托盘菜单均默认以 `bold`（700）饱满字重协调渲染，支持在配置文件中随心定制。
 
 #### 界面
 
@@ -104,7 +106,7 @@ DisplayMonitor = 1
 ```
 
 > `ThemeMode`：`auto` 跟随系统深浅色（默认）/ `light` 浅色 / `dark` 深色；也可写 `0` / `1` / `2`。
-> `DisplayMonitor`：`0` 主屏幕 / `1` 跟随鼠标所在屏幕（默认）；与托盘菜单「Display Monitor」同步。
+> `DisplayMonitor`：`0` 主屏幕 / `1` 跟随鼠标所在屏幕（默认）；与托盘菜单「显示器设置」同步。
 
 ## 📄 License
 

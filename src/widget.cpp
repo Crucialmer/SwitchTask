@@ -263,7 +263,7 @@ void Widget::showLabelForItem(QListWidgetItem* item) {
 
 void Widget::setupLabelFont() {
     static auto reloadLabelFontCfg = [this] {
-        const QStringList Fonts = {"Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "Consolas"}; // 现代排版优先
+        const QStringList Fonts = {"Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI Variable Display", "Segoe UI", "Consolas"}; // 默认简体中文微软雅黑优先
         auto labelFont = ui->label->font();
         auto fontSize = CFG.get("label/font_size", 10.5).toDouble(); // 默认 10.5pt（100% 缩放下即 14px，视觉更饱满清晰）
         if (fontSize <= 0)
@@ -272,17 +272,17 @@ void Widget::setupLabelFont() {
         auto defaultFF = QStringList{CFG.get("label/font_family", Fonts[0]).toString()};
         labelFont.setFamilies(defaultFF << Fonts.mid(1));
 
-        // 默认 Medium (500) 或 SemiBold (600)，排版更加细腻舒适，摆脱 YaHei Bold 700 的厚重粗笨
-        const auto weightCfg = CFG.get("label/font_weight", "500").toString().trimmed().toLower();
-        int weight = 500;
+        // 默认 Bold (700)，字骨饱满扎实，同时支持在 config.ini [label] 节自由定制
+        const auto weightCfg = CFG.get("label/font_weight", "bold").toString().trimmed().toLower();
+        int weight = 700;
         if (!weightCfg.isEmpty()) {
-            if (weightCfg == "bold" || weightCfg == "b")
+            if (weightCfg == "bold" || weightCfg == "b" || weightCfg == "700")
                 weight = 700;
-            else if (weightCfg == "normal" || weightCfg == "regular" || weightCfg == "n")
+            else if (weightCfg == "normal" || weightCfg == "regular" || weightCfg == "n" || weightCfg == "400")
                 weight = 400;
-            else if (weightCfg == "medium" || weightCfg == "m")
+            else if (weightCfg == "medium" || weightCfg == "m" || weightCfg == "500")
                 weight = 500;
-            else if (weightCfg == "semibold" || weightCfg == "demibold")
+            else if (weightCfg == "semibold" || weightCfg == "demibold" || weightCfg == "600")
                 weight = 600;
             else {
                 bool ok = false;
@@ -291,7 +291,7 @@ void Widget::setupLabelFont() {
                     weight = num;
             }
             if (weight <= 0) {
-                weight = 500;
+                weight = 700;
                 qWarning() << "Invalid label/font_weight (expect 100~900/bold/medium/normal):" << weightCfg;
             }
         }

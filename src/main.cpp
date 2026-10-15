@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QFont>
 #include <windows.h>
 #include <QTimer>
 #include <QMessageBox>
@@ -17,6 +18,9 @@
 
 int main(int argc, char* argv[]) {
     QApplication a(argc, argv);
+    QFont defaultAppFont("Microsoft YaHei UI");
+    defaultAppFont.setStyleHint(QFont::SansSerif);
+    QApplication::setFont(defaultAppFont);
 #ifdef APP_VERSION
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION)); // UpdateDialog 更新检查依赖
 #endif

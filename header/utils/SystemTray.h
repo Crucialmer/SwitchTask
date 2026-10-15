@@ -62,7 +62,7 @@ private:
     explicit SystemTray(QWidget* parent = nullptr) : QSystemTrayIcon(parent) {
         setIcon(QIcon(":/img/icon.ico"));
         setMenu(parent);
-        setToolTip(IsUserAnAdmin() ? "SwitchTask (admin)" : "SwitchTask");
+        setToolTip(IsUserAnAdmin() ? "SwitchTask (管理员)" : "SwitchTask");
         // 启动后延迟预热 Startup 缓存，首次弹出托盘菜单不再同步等 schtasks 子进程
         QTimer::singleShot(3000, this, [] { Startup::isOn(true); });
 
@@ -74,8 +74,8 @@ private:
             lastToastWasUpdate = true;    // 归属标记：本条通知即“更新可用”
             // 可交互时长取系统上限 ~30s：实测系统只在其超时前派发点击（超时后气泡即使仍在屏上，
             // 点击也仅解散气泡、不传回应用）——久置气泡点击不可依赖，另配托盘单击兜底（见 activated）
-            showMessage("Update Available",
-                        QString("SwitchTask v%1 is available — click to review.").arg(ver),
+            showMessage("发现新版本",
+                        QString("SwitchTask v%1 已发布 — 点击查看详情。").arg(ver),
                         QSystemTrayIcon::Information, 30000);
         });
         connect(this, &QSystemTrayIcon::messageClicked, this, [this] {
@@ -106,21 +106,21 @@ private:
 
         // macOS 风格顶部品牌状态卡片（Header Card）
         const QString verStr = [] {
-            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.19");
-            if (v.isEmpty()) v = QStringLiteral("1.19");
+            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.20");
+            if (v.isEmpty()) v = QStringLiteral("1.20");
             if (v.count('.') > 1 && v.endsWith(".0")) v.chop(2);
             return QString("v%1").arg(v);
         }();
         auto* headerAction = new QWidgetAction(menu);
         headerAction->setDefaultWidget(new MenuHeaderWidget(verStr, menu));
 
-        auto* act_update = new QAction("Check for Updates...", menu);
-        auto* act_settings = new QAction("Settings...", menu);
-        auto* act_startup = new QAction("Start with Windows", menu);
-        menu_monitor = new QMenu("Display Monitor", menu);
+        auto* act_update = new QAction("检查更新...", menu);
+        auto* act_settings = new QAction("设置...", menu);
+        auto* act_startup = new QAction("开机自启动", menu);
+        menu_monitor = new QMenu("显示器设置", menu);
         menu_monitor->setWindowFlags(menu_monitor->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
         menu_monitor->setAttribute(Qt::WA_TranslucentBackground);
-        auto* act_quit = new QAction("Quit SwitchTask", menu);
+        auto* act_quit = new QAction("退出 SwitchTask", menu);
         act_quit->setShortcut(QKeySequence("Ctrl+Q"));
 
         connect(act_update, &QAction::triggered, this, [this] {
@@ -133,7 +133,7 @@ private:
         });
         connect(&CFG, &ConfigManager::configEdited, this, [this] {
             lastToastWasUpdate = false; // 本条非“更新可用”：messageClicked 归属修正（托盘单击兜底不受影响）
-            this->showMessage("Config Edited", "auto reloaded");
+            this->showMessage("配置已更新", "已自动重新加载");
         });
 
         act_startup->setCheckable(true);
@@ -142,9 +142,9 @@ private:
             lastToastWasUpdate = false; // 同上：本条通知非“更新可用”
             Startup::toggle();
             if (Startup::isOn() == checked) // toggle 后缓存已重建（invalidateCache），此处直读缓存不阻塞
-                this->showMessage("auto Startup mode", checked ? "ON √" : "OFF ×");
+                this->showMessage("开机自启动", checked ? "已开启 √" : "已关闭 ×");
             else
-                this->showMessage("Action Failed", "Failed to change Startup mode", Warning);
+                this->showMessage("操作失败", "修改开机自启状态失败", Warning);
         });
         // aboutToShow 时查询，反映真实状态（isOn 带 60s 缓存 + 启动时预热，菜单弹出不再等 schtasks 子进程）
         connect(menu, &QMenu::aboutToShow, act_startup, [act_startup] {
@@ -154,8 +154,8 @@ private:
         // menu_monitor
         {
             auto* monitorGroup = new QActionGroup(menu_monitor);
-            monitorGroup->addAction("Primary Monitor")->setData(PrimaryMonitor);
-            monitorGroup->addAction("Mouse Monitor")->setData(MouseMonitor);
+            monitorGroup->addAction("主显示器")->setData(PrimaryMonitor);
+            monitorGroup->addAction("跟随鼠标")->setData(MouseMonitor);
 
             const auto actions = monitorGroup->actions();
             for (auto* act: actions)
@@ -175,7 +175,7 @@ private:
                 lastToastWasUpdate = false; // 同上
                 auto monitor = static_cast<DisplayMonitor>(act->data().toInt());
                 CFG.setDisplayMonitor(monitor);
-                this->showMessage("Display Monitor Changed", act->text());
+                this->showMessage("显示器已切换", act->text());
             });
         }
 

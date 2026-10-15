@@ -1,4 +1,4 @@
-﻿// You may need to build the project (run Qt uic code generator) to get "ui_UpdateDialog.h" resolved
+// You may need to build the project (run Qt uic code generator) to get "ui_UpdateDialog.h" resolved
 
 #include "UpdateDialog.h"
 #include <QCommandLineParser>
@@ -431,7 +431,7 @@ void UpdateDialog::showEvent(QShowEvent*) {
 /// 更新说明区随深浅色模式着色（QSS 需设实底，圆角才生效）
 void UpdateDialog::applyTheme() {
     ui->textBrowser->setStyleSheet(QStringLiteral(
-        "QTextBrowser { font: 10pt \"微软雅黑\"; padding: 5px; border-radius: 5px; background-color: %1; }")
+        "QTextBrowser { font: bold 10pt \"Microsoft YaHei UI\", \"微软雅黑\"; padding: 5px; border-radius: 5px; background-color: %1; }")
         .arg(Theme::dialogSurface().name()));
     // 「Current Version」次级文字随主题（原 .ui 固定 #7A7A7A，深色下偏暗；浅色保持原值不变）
     ui->label_ver->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::dialogSecondaryText().name()));
