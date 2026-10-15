@@ -802,48 +802,6 @@ namespace Util {
         return bg;
     }
 
-    /// Apple 连续曲率平滑圆角（G2 连续性近似）：兼顾直边平直与拐角曲率平滑衔接
-    QPainterPath smoothRoundedRectPath(const QRectF& rect, qreal radius) {
-        QPainterPath path;
-        const qreal w = rect.width();
-        const qreal h = rect.height();
-        const qreal r = qMin(radius, qMin(w, h) / 2.0);
-        if (r <= 0.0) {
-            path.addRect(rect);
-            return path;
-        }
-
-        // 连续曲率贝塞尔平滑圆角（消除普通圆弧在切点处的曲率突变）
-        const qreal x0 = rect.left(), y0 = rect.top();
-        const qreal x1 = rect.right(), y1 = rect.bottom();
-        const qreal d = r * 1.528665;
-        const qreal dClamped = qMin(d, qMin(w, h) / 2.0);
-        const qreal factor = (d > 0.0001) ? (dClamped / d) : 1.0;
-        const qreal p0 = 0.04641 * factor * r;
-        const qreal p3 = 0.50578 * factor * r;
-        const qreal p4 = 0.74533 * factor * r;
-
-        path.moveTo(x0 + dClamped, y0);
-        path.lineTo(x1 - dClamped, y0);
-        path.cubicTo(x1 - dClamped + p4, y0,
-                     x1 - p0, y0 + dClamped - p3,
-                     x1, y0 + dClamped);
-        path.lineTo(x1, y1 - dClamped);
-        path.cubicTo(x1, y1 - dClamped + p3,
-                     x1 - dClamped + p4, y1,
-                     x1 - dClamped, y1);
-        path.lineTo(x0 + dClamped, y1);
-        path.cubicTo(x0 + dClamped - p4, y1,
-                     x0, y1 - dClamped + p3,
-                     x0, y1 - dClamped);
-        path.lineTo(x0, y0 + dClamped);
-        path.cubicTo(x0, y0 + dClamped - p3,
-                     x0 + dClamped - p4, y0,
-                     x0 + dClamped, y0);
-        path.closeSubpath();
-        return path;
-    }
-
     /// 超椭圆（squircle）路径：连续曲率圆角，macOS 风格方圆角（用于选中底绘制）
     QPainterPath squirclePath(const QRectF& rect, qreal exponent) {
         // 记忆化：同一弹窗内 rect/exponent 恒定（选中底内缩 1px、悬停底不缩，共两种组合），
