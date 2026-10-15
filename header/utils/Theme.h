@@ -63,7 +63,7 @@ namespace Theme {
     inline QColor dialogSecondaryText() { return isDark() ? QColor(0x9E, 0x9E, 0x9E) : QColor(0x7A, 0x7A, 0x7A); }
 
     // ---------- 托盘菜单样式表 ----------
-    /// macOS 风格：平滑圆角 + 通透毛玻璃 + 原生 Checkmark 指示器 + 优雅悬停胶囊 + 顶部品牌卡片与加粗排版（随模式切换即时重绘）
+    /// macOS 风格：平滑圆角 + 通透毛玻璃 + 268px 宽屏 + 原生两行式品牌状态卡片 + 统一 38px 文本对齐列 + 原生 Checkmark 指示器（对标 Tcursor 2.5.2）
     inline QString menuStyleSheet() {
         const bool dark = isDark();
         auto css = [](const QColor& c) { return c.name(QColor::HexArgb); };
@@ -74,6 +74,12 @@ namespace Theme {
         const QColor disabled = dark ? QColor(255, 255, 255, 120) : QColor(0, 0, 0, 110);
         const QColor separator = dark ? QColor(255, 255, 255, 26) : QColor(0, 0, 0, 18);
         const QColor badgeBg = dark ? QColor(255, 255, 255, 22) : QColor(0, 0, 0, 14);
+
+        // 顶栏专属卡片底色与边框（macOS Menu Bar Extra 顶栏状态卡片，对标 Tcursor 2.5.2）
+        const QColor cardBg = dark ? QColor(46, 46, 51, 235) : QColor(242, 242, 246, 235);
+        const QColor cardBorder = dark ? QColor(68, 68, 74, 200) : QColor(220, 220, 226, 220);
+        const QColor cardHover = dark ? QColor(56, 56, 62, 245) : QColor(234, 234, 240, 245);
+        const QColor statusText = dark ? QColor(242, 242, 245) : QColor(28, 28, 30);
 
         // 选中悬停态（macOS 菜单高亮胶囊）：
         // 深色模式：微光白半透明胶囊 + 纯白高亮字；
@@ -114,11 +120,23 @@ namespace Theme {
                    "  border: 1px solid %2;"
                    "  border-radius: 10px;"
                    "  padding: 5px;"
+                   "  min-width: 268px;"
                    "  font-family: @FONT_FAMILY@;"
                    "  font-size: %3px;"
                    "  font-weight: %4;"
                    "}"
-                   "#menuHeaderWidget { background: transparent; }"
+                   "#menuHeaderWidget {"
+                   "  background: transparent;"
+                   "  padding: 2px 2px 4px 2px;"
+                   "}"
+                   "#menuHeaderCard {"
+                   "  background-color: @CARD_BG@;"
+                   "  border: 1px solid @CARD_BORDER@;"
+                   "  border-radius: 7px;"
+                   "}"
+                   "#menuHeaderCard:hover {"
+                   "  background-color: @CARD_HOVER@;"
+                   "}"
                    "#menuHeaderTitle {"
                    "  font-family: @FONT_FAMILY@;"
                    "  font-size: %3px;"
@@ -133,28 +151,39 @@ namespace Theme {
                    "  color: %6;"
                    "  background-color: %7;"
                    "  border-radius: 4px;"
-                   "  padding: 1px 6px;"
+                   "  padding: 1px 7px;"
+                   "}"
+                   "#menuHeaderStatusText {"
+                   "  font-family: @FONT_FAMILY@;"
+                   "  font-size: 11px;"
+                   "  font-weight: %4;"
+                   "  color: @STATUS_TEXT@;"
+                   "  background: transparent;"
                    "}"
                    "QMenu::item {"
-                   "  padding: 6px 22px 6px 26px;"
+                   "  padding: 6px 22px 6px 38px;"
                    "  border-radius: 5px;"
-                   "  margin: 1px 2px;"
+                   "  margin: 1px 3px;"
                    "  color: %5;"
                    "  background: transparent;"
                    "  font-weight: %4;"
                    "}"
                    "QMenu::item:selected { background-color: %8; color: %9; }"
                    "QMenu::item:disabled { color: %6; }"
-                   "QMenu::separator { height: 1px; background: @SEP@; margin: 4px 8px; }"
-                   "QMenu::indicator { width: 12px; height: 12px; margin-left: 7px; }"
+                   "QMenu::separator { height: 1px; background: @SEP@; margin: 4px 12px; }"
+                   "QMenu::indicator { width: 12px; height: 12px; margin-left: 14px; }"
                    "QMenu::indicator:checked { image: url(@CHK@); }"
                    "QMenu::indicator:checked:selected { image: url(:/img/checkmark-dark.svg); }"
                    "QMenu::indicator:unchecked { image: none; border: none; background: transparent; }"
-                   "QMenu::right-arrow { image: url(:/img/chevron-right.svg); width: 11px; height: 11px; margin-right: 5px; }")
+                   "QMenu::right-arrow { image: url(:/img/chevron-right.svg); width: 11px; height: 11px; margin-right: 8px; }")
             .arg(css(bg), css(border), QString::number(fontSize), QString::number(weight), css(text), css(disabled), css(badgeBg), css(selBg), css(selText));
         qss.replace("@SEP@", css(separator));
         qss.replace("@CHK@", checkIcon);
         qss.replace("@FONT_FAMILY@", fontFamily);
+        qss.replace("@CARD_BG@", css(cardBg));
+        qss.replace("@CARD_BORDER@", css(cardBorder));
+        qss.replace("@CARD_HOVER@", css(cardHover));
+        qss.replace("@STATUS_TEXT@", css(statusText));
         return qss;
     }
 } // namespace Theme

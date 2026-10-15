@@ -9,7 +9,11 @@
 #include <QTimer>
 #include <QWidgetAction>
 #include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QLabel>
+#include <QFrame>
+#include <QPainter>
+#include <QMouseEvent>
 #include "Startup.h"
 #include "ConfigManager.h"
 #include "UpdateChecker.h"
@@ -19,32 +23,143 @@
 
 #define sysTray SystemTray::instance()
 
-/// macOS 风格菜单顶栏品牌卡片：[Icon] SwitchTask      v1.19
+/// 状态呼吸圆点：抗锯齿矢量圆点绘制，默认 Apple Traffic Green (#34C759)
+class StatusDot : public QWidget {
+public:
+    explicit StatusDot(QWidget* parent = nullptr) : QWidget(parent) {
+        setFixedSize(10, 10);
+        setAttribute(Qt::WA_TransparentForMouseEvents);
+    }
+    void setColor(const QColor& c) {
+        if (dotColor != c) {
+            dotColor = c;
+            update();
+        }
+    }
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(dotColor);
+        p.drawEllipse(QRectF(1.75, 1.75, 6.5, 6.5));
+    }
+private:
+    QColor dotColor = QColor(0x34, 0xC7, 0x59);
+};
+
+/// macOS 风格菜单顶栏专属品牌状态卡片（Header Card，对标 Tcursor 2.5.2）
+/// 第一行：左侧 18px 连续曲率方圆角应用图标 + 加粗排版 SwitchTask 品牌名，右侧精细磨砂半透明版本徽标胶囊；
+/// 第二行：绿/橙实时呼吸圆点 + Bold 700 实时状态文本；
+/// 容器具备独立温润衬底与边框，支持悬停高亮与单击直达配置/设置。
 class MenuHeaderWidget : public QWidget {
 public:
     explicit MenuHeaderWidget(const QString& version, QWidget* parent = nullptr) : QWidget(parent) {
         setObjectName("menuHeaderWidget");
-        auto* layout = new QHBoxLayout(this);
-        layout->setContentsMargins(12, 7, 12, 6);
-        layout->setSpacing(8);
+        setCursor(Qt::PointingHandCursor);
+        setToolTip(QStringLiteral("点击打开配置文件/设置..."));
 
-        auto* iconLabel = new QLabel(this);
+        auto* rootLayout = new QVBoxLayout(this);
+        rootLayout->setContentsMargins(4, 3, 4, 3);
+        rootLayout->setSpacing(0);
+
+        card = new QFrame(this);
+        card->setObjectName("menuHeaderCard");
+        card->setCursor(Qt::PointingHandCursor);
+        card->installEventFilter(this);
+
+        auto* cardLayout = new QVBoxLayout(card);
+        cardLayout->setContentsMargins(10, 8, 10, 8);
+        cardLayout->setSpacing(5);
+
+        // 第一行：[18px 图标] + SwitchTask 品牌名 (Bold 700) + [版本徽标小胶囊]
+        auto* line1 = new QHBoxLayout();
+        line1->setContentsMargins(0, 0, 0, 0);
+        line1->setSpacing(8);
+
+        auto* iconLabel = new QLabel(card);
         iconLabel->setObjectName("menuHeaderIcon");
         iconLabel->setPixmap(QIcon(":/img/icon.ico").pixmap(18, 18));
         iconLabel->setFixedSize(18, 18);
         iconLabel->setStyleSheet("background: transparent;");
-        layout->addWidget(iconLabel);
+        iconLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        line1->addWidget(iconLabel, 0, Qt::AlignVCenter);
 
-        auto* titleLabel = new QLabel("SwitchTask", this);
+        auto* titleLabel = new QLabel(QStringLiteral("SwitchTask"), card);
         titleLabel->setObjectName("menuHeaderTitle");
-        layout->addWidget(titleLabel);
+        titleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        line1->addWidget(titleLabel, 0, Qt::AlignVCenter);
 
-        layout->addStretch();
+        line1->addStretch();
 
-        auto* versionLabel = new QLabel(version, this);
+        auto* versionLabel = new QLabel(version, card);
         versionLabel->setObjectName("menuHeaderVersion");
-        layout->addWidget(versionLabel);
+        versionLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        line1->addWidget(versionLabel, 0, Qt::AlignVCenter);
+
+        cardLayout->addLayout(line1);
+
+        // 第二行：绿/橙实时呼吸圆点 + Bold 700 粗体运行状态文本
+        auto* line2 = new QHBoxLayout();
+        line2->setContentsMargins(0, 0, 0, 0);
+        line2->setSpacing(6);
+
+        statusDot = new StatusDot(card);
+        line2->addWidget(statusDot, 0, Qt::AlignVCenter);
+
+        statusLabel = new QLabel(QStringLiteral("运行中 · 快捷切换就绪"), card);
+        statusLabel->setObjectName("menuHeaderStatusText");
+        statusLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+        line2->addWidget(statusLabel, 1, Qt::AlignVCenter);
+
+        cardLayout->addLayout(line2);
+
+        rootLayout->addWidget(card);
+        setFixedHeight(58);
     }
+
+    void updateStatus(const QString& text, const QColor& dotColor = QColor(0x34, 0xC7, 0x59)) {
+        if (statusLabel) statusLabel->setText(text);
+        if (statusDot) statusDot->setColor(dotColor);
+    }
+
+    QSize sizeHint() const override {
+        return QSize(268, 58);
+    }
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (watched == card && event->type() == QEvent::MouseButtonPress) {
+            auto* me = static_cast<QMouseEvent*>(event);
+            if (me->button() == Qt::LeftButton) {
+                handleClick();
+                return true;
+            }
+        }
+        return QWidget::eventFilter(watched, event);
+    }
+
+    void mousePressEvent(QMouseEvent* event) override {
+        if (event->button() == Qt::LeftButton) {
+            handleClick();
+            return;
+        }
+        QWidget::mousePressEvent(event);
+    }
+
+private:
+    void handleClick() {
+        CFG.editConfigFile();
+        if (auto* m = qobject_cast<QMenu*>(parentWidget())) {
+            m->close();
+        } else if (parentWidget()) {
+            parentWidget()->close();
+        }
+    }
+
+    QFrame* card = nullptr;
+    StatusDot* statusDot = nullptr;
+    QLabel* statusLabel = nullptr;
 };
 
 class SystemTray : public QSystemTrayIcon {
@@ -104,20 +219,24 @@ private:
         menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
         menu->setAttribute(Qt::WA_TranslucentBackground);
 
-        // macOS 风格顶部品牌状态卡片（Header Card）
+        menu->setMinimumWidth(268);
+
+        // macOS 风格顶部品牌状态卡片（Header Card，对标 Tcursor 2.5.2）
         const QString verStr = [] {
-            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.20");
-            if (v.isEmpty()) v = QStringLiteral("1.20");
+            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.21");
+            if (v.isEmpty()) v = QStringLiteral("1.21");
             if (v.count('.') > 1 && v.endsWith(".0")) v.chop(2);
             return QString("v%1").arg(v);
         }();
+        headerWidget = new MenuHeaderWidget(verStr, menu);
         auto* headerAction = new QWidgetAction(menu);
-        headerAction->setDefaultWidget(new MenuHeaderWidget(verStr, menu));
+        headerAction->setDefaultWidget(headerWidget);
 
         auto* act_update = new QAction("检查更新...", menu);
         auto* act_settings = new QAction("设置...", menu);
         auto* act_startup = new QAction("开机自启动", menu);
         menu_monitor = new QMenu("显示器设置", menu);
+        menu_monitor->setMinimumWidth(220);
         menu_monitor->setWindowFlags(menu_monitor->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
         menu_monitor->setAttribute(Qt::WA_TranslucentBackground);
         auto* act_quit = new QAction("退出 SwitchTask", menu);
@@ -196,6 +315,9 @@ private:
         // 若构造期提前 winId()，原生窗口会被钉在启动屏幕的 DPI 上（多屏混合缩放场景）；重放幂等
         connect(menu, &QMenu::aboutToShow, menu, [this] {
             setWindowBlur(reinterpret_cast<HWND>(menu->winId()));
+            if (headerWidget) {
+                headerWidget->updateStatus(QStringLiteral("运行中 · 快捷切换就绪"));
+            }
         });
         connect(menu_monitor, &QMenu::aboutToShow, menu_monitor, [this] {
             setWindowBlur(reinterpret_cast<HWND>(menu_monitor->winId()));
@@ -235,6 +357,7 @@ private:
 private:
     QMenu* menu = nullptr; // 托盘菜单（圆角 + 毛玻璃，随主题刷新）
     QMenu* menu_monitor = nullptr; // Display Monitor 子菜单
+    MenuHeaderWidget* headerWidget = nullptr; // 顶部专属品牌状态卡片
     UpdateChecker* updateChecker = nullptr; // 更新静默检查（B+D：启动 + 24h）
     bool updateReminderPending = false; // 更新提醒存续（未处理）：托盘图标单击兜底路径用；被消费时清除
     bool lastToastWasUpdate = false;    // 最近一条通知是否为“更新可用”：messageClicked 的归属判定
