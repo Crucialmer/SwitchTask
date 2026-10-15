@@ -84,13 +84,17 @@
 
 ```ini
 [label]
-font_family = "Microsoft YaHei UI"
-font_size = 10
-font_weight = bold
+font_family = "Segoe UI Variable Display"
+font_size = 10.5
+font_weight = 500
+
+[menu]
+font_weight = 500
+font_size = 13
 ```
 
 > `font_size` 支持小数，如 `10.5`（100% 缩放下恰好为 14px，显示更清晰）。
-> `font_weight` 字重：默认为 `bold`；也可写 `400` 常规 / `500` 中等 / `600` 半粗 / `700` 粗体，或 `normal`。
+> `font_weight` 字重：支持 `400` 常规 / `500` 中等 / `600` 半粗 / `700` 粗体，或 `normal` / `medium` / `bold`。托盘菜单 `[menu]` 默认以 `500`（Medium）加粗协调渲染。
 
 #### 界面
 

@@ -63,7 +63,7 @@ namespace Theme {
     inline QColor dialogSecondaryText() { return isDark() ? QColor(0x9E, 0x9E, 0x9E) : QColor(0x7A, 0x7A, 0x7A); }
 
     // ---------- 托盘菜单样式表 ----------
-    /// macOS 风格：平滑圆角 + 通透毛玻璃 + 原生 Checkmark 指示器 + 优雅悬停胶囊（随模式切换即时重绘）
+    /// macOS 风格：平滑圆角 + 通透毛玻璃 + 原生 Checkmark 指示器 + 优雅悬停胶囊 + 协调加粗排版（随模式切换即时重绘）
     inline QString menuStyleSheet() {
         const bool dark = isDark();
         auto css = [](const QColor& c) { return c.name(QColor::HexArgb); };
@@ -81,21 +81,36 @@ namespace Theme {
         const QColor selText = dark ? QColor(255, 255, 255) : QColor(10, 30, 56);
         const QString checkIcon = dark ? QStringLiteral(":/img/checkmark-dark.svg") : QStringLiteral(":/img/checkmark-light.svg");
 
+        // 字体加粗与协调：默认 500 (Medium) 加粗至与主窗口一致的视觉厚度，字号提升至 13px；
+        // 彻底解决此前 400 Regular 单薄发虚问题。亦可在 config.ini [menu] 节用 font_weight/font_size 自定义
+        const auto weightRaw = CFG.get("menu/font_weight", "500").toString().trimmed().toLower();
+        int weight = 500;
+        if (weightRaw == "bold" || weightRaw == "b" || weightRaw == "700") weight = 700;
+        else if (weightRaw == "semibold" || weightRaw == "demibold" || weightRaw == "600") weight = 600;
+        else if (weightRaw == "normal" || weightRaw == "regular" || weightRaw == "400") weight = 400;
+        else if (weightRaw == "medium" || weightRaw == "500") weight = 500;
+        else if (auto val = weightRaw.toInt(); val >= 100 && val <= 900) weight = val;
+
+        auto fontSize = CFG.get("menu/font_size", 13.0).toDouble();
+        if (fontSize <= 0) fontSize = 13.0;
+
         return QStringLiteral(
                    "QMenu {"
                    "  background-color: %1;"
                    "  border: 1px solid %2;"
                    "  border-radius: 10px;"
                    "  padding: 5px;"
-                   "  font-family: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, sans-serif;"
-                   "  font-size: 12px;"
+                   "  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', -apple-system, sans-serif;"
+                   "  font-size: %9px;"
+                   "  font-weight: %10;"
                    "}"
                    "QMenu::item {"
-                   "  padding: 5px 22px 5px 26px;"
+                   "  padding: 6px 22px 6px 26px;"
                    "  border-radius: 5px;"
                    "  margin: 1px 2px;"
                    "  color: %3;"
                    "  background: transparent;"
+                   "  font-weight: %10;"
                    "}"
                    "QMenu::item:selected { background-color: %4; color: %5; }"
                    "QMenu::item:disabled { color: %6; }"
@@ -111,7 +126,9 @@ namespace Theme {
             .arg(css(selText))
             .arg(css(disabled))
             .arg(css(separator))
-            .arg(checkIcon);
+            .arg(checkIcon)
+            .arg(fontSize)
+            .arg(weight);
     }
 } // namespace Theme
 
