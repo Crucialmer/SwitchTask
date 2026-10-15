@@ -63,72 +63,84 @@ namespace Theme {
     inline QColor dialogSecondaryText() { return isDark() ? QColor(0x9E, 0x9E, 0x9E) : QColor(0x7A, 0x7A, 0x7A); }
 
     // ---------- 托盘菜单样式表 ----------
-    /// macOS 风格：平滑圆角 + 通透毛玻璃 + 原生 Checkmark 指示器 + 优雅悬停胶囊 + 协调加粗排版（随模式切换即时重绘）
+    /// macOS 风格：平滑圆角 + 通透毛玻璃 + 原生 Checkmark 指示器 + 优雅悬停胶囊 + 顶部品牌卡片与加粗排版（随模式切换即时重绘）
     inline QString menuStyleSheet() {
         const bool dark = isDark();
         auto css = [](const QColor& c) { return c.name(QColor::HexArgb); };
         // macOS 风格：通透毛玻璃底色（约 78%~80% alpha，配合 SetWindowCompositionAttribute 呈现通透的环境磨砂光影）
-        const QColor bg = dark ? QColor(32, 32, 36, 198) : QColor(248, 248, 250, 204);
+        const QColor bg = dark ? QColor(28, 28, 32, 198) : QColor(248, 248, 250, 204);
         const QColor border = dark ? QColor(255, 255, 255, 38) : QColor(0, 0, 0, 26);
         const QColor text = dark ? QColor(242, 242, 245) : QColor(28, 28, 30);
-        const QColor disabled = dark ? QColor(255, 255, 255, 75) : QColor(0, 0, 0, 70);
-        const QColor separator = dark ? QColor(255, 255, 255, 26) : QColor(0, 0, 0, 20);
+        const QColor disabled = dark ? QColor(255, 255, 255, 120) : QColor(0, 0, 0, 110);
+        const QColor separator = dark ? QColor(255, 255, 255, 26) : QColor(0, 0, 0, 18);
+        const QColor badgeBg = dark ? QColor(255, 255, 255, 22) : QColor(0, 0, 0, 14);
 
         // 选中悬停态（macOS 菜单高亮胶囊）：
         // 深色模式：微光白半透明胶囊 + 纯白高亮字；
-        // 浅色模式：经典品牌马卡龙·婴儿蓝胶囊 + 高对比度深蓝文字
-        const QColor selBg = dark ? QColor(255, 255, 255, 34) : brandColor(220);
-        const QColor selText = dark ? QColor(255, 255, 255) : QColor(10, 30, 56);
+        // 浅色模式：Apple 原厂 Accent Blue (#007AFF) + 纯白高亮字
+        const QColor selBg = dark ? QColor(255, 255, 255, 34) : QColor(0, 122, 255);
+        const QColor selText = QColor(255, 255, 255);
         const QString checkIcon = dark ? QStringLiteral(":/img/checkmark-dark.svg") : QStringLiteral(":/img/checkmark-light.svg");
 
-        // 字体加粗与协调：默认 500 (Medium) 加粗至与主窗口一致的视觉厚度，字号提升至 13px；
-        // 彻底解决此前 400 Regular 单薄发虚问题。亦可在 config.ini [menu] 节用 font_weight/font_size 自定义
-        const auto weightRaw = CFG.get("menu/font_weight", "500").toString().trimmed().toLower();
-        int weight = 500;
+        // 字体加粗与协调：默认 bold (700) 饱满扎实，同时支持在 config.ini [menu] 节通过 font_weight / font_size 自由定制
+        const auto weightRaw = CFG.get("menu/font_weight", "bold").toString().trimmed().toLower();
+        int weight = 700; // 默认 bold (700)
         if (weightRaw == "bold" || weightRaw == "b" || weightRaw == "700") weight = 700;
         else if (weightRaw == "semibold" || weightRaw == "demibold" || weightRaw == "600") weight = 600;
-        else if (weightRaw == "normal" || weightRaw == "regular" || weightRaw == "400") weight = 400;
         else if (weightRaw == "medium" || weightRaw == "500") weight = 500;
+        else if (weightRaw == "normal" || weightRaw == "regular" || weightRaw == "400") weight = 400;
         else if (auto val = weightRaw.toInt(); val >= 100 && val <= 900) weight = val;
 
         auto fontSize = CFG.get("menu/font_size", 13.0).toDouble();
         if (fontSize <= 0) fontSize = 13.0;
 
-        return QStringLiteral(
+        QString qss = QStringLiteral(
                    "QMenu {"
                    "  background-color: %1;"
                    "  border: 1px solid %2;"
                    "  border-radius: 10px;"
                    "  padding: 5px;"
                    "  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', -apple-system, sans-serif;"
-                   "  font-size: %9px;"
-                   "  font-weight: %10;"
+                   "  font-size: %3px;"
+                   "  font-weight: %4;"
+                   "}"
+                   "#menuHeaderWidget { background: transparent; }"
+                   "#menuHeaderTitle {"
+                   "  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', -apple-system, sans-serif;"
+                   "  font-size: %3px;"
+                   "  font-weight: %4;"
+                   "  color: %5;"
+                   "  background: transparent;"
+                   "}"
+                   "#menuHeaderVersion {"
+                   "  font-family: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, sans-serif;"
+                   "  font-size: 11px;"
+                   "  font-weight: 500;"
+                   "  color: %6;"
+                   "  background-color: %7;"
+                   "  border-radius: 4px;"
+                   "  padding: 1px 6px;"
                    "}"
                    "QMenu::item {"
                    "  padding: 6px 22px 6px 26px;"
                    "  border-radius: 5px;"
                    "  margin: 1px 2px;"
-                   "  color: %3;"
+                   "  color: %5;"
                    "  background: transparent;"
-                   "  font-weight: %10;"
+                   "  font-weight: %4;"
                    "}"
-                   "QMenu::item:selected { background-color: %4; color: %5; }"
+                   "QMenu::item:selected { background-color: %8; color: %9; }"
                    "QMenu::item:disabled { color: %6; }"
-                   "QMenu::separator { height: 1px; background: %7; margin: 4px 8px; }"
+                   "QMenu::separator { height: 1px; background: @SEP@; margin: 4px 8px; }"
                    "QMenu::indicator { width: 12px; height: 12px; margin-left: 7px; }"
-                   "QMenu::indicator:checked { image: url(%8); }"
+                   "QMenu::indicator:checked { image: url(@CHK@); }"
+                   "QMenu::indicator:checked:selected { image: url(:/img/checkmark-dark.svg); }"
                    "QMenu::indicator:unchecked { image: none; border: none; background: transparent; }"
                    "QMenu::right-arrow { image: url(:/img/chevron-right.svg); width: 11px; height: 11px; margin-right: 5px; }")
-            .arg(css(bg))
-            .arg(css(border))
-            .arg(css(text))
-            .arg(css(selBg))
-            .arg(css(selText))
-            .arg(css(disabled))
-            .arg(css(separator))
-            .arg(checkIcon)
-            .arg(fontSize)
-            .arg(weight);
+            .arg(css(bg), css(border), QString::number(fontSize), QString::number(weight), css(text), css(disabled), css(badgeBg), css(selBg), css(selText));
+        qss.replace("@SEP@", css(separator));
+        qss.replace("@CHK@", checkIcon);
+        return qss;
     }
 } // namespace Theme
 

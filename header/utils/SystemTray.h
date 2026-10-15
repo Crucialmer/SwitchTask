@@ -7,6 +7,9 @@
 #include <QSystemTrayIcon>
 #include <QActionGroup>
 #include <QTimer>
+#include <QWidgetAction>
+#include <QHBoxLayout>
+#include <QLabel>
 #include "Startup.h"
 #include "ConfigManager.h"
 #include "UpdateChecker.h"
@@ -15,6 +18,34 @@
 #include "setWindowBlur.h"
 
 #define sysTray SystemTray::instance()
+
+/// macOS 风格菜单顶栏品牌卡片：[Icon] SwitchTask      v1.19
+class MenuHeaderWidget : public QWidget {
+public:
+    explicit MenuHeaderWidget(const QString& version, QWidget* parent = nullptr) : QWidget(parent) {
+        setObjectName("menuHeaderWidget");
+        auto* layout = new QHBoxLayout(this);
+        layout->setContentsMargins(12, 7, 12, 6);
+        layout->setSpacing(8);
+
+        auto* iconLabel = new QLabel(this);
+        iconLabel->setObjectName("menuHeaderIcon");
+        iconLabel->setPixmap(QIcon(":/img/icon.ico").pixmap(18, 18));
+        iconLabel->setFixedSize(18, 18);
+        iconLabel->setStyleSheet("background: transparent;");
+        layout->addWidget(iconLabel);
+
+        auto* titleLabel = new QLabel("SwitchTask", this);
+        titleLabel->setObjectName("menuHeaderTitle");
+        layout->addWidget(titleLabel);
+
+        layout->addStretch();
+
+        auto* versionLabel = new QLabel(version, this);
+        versionLabel->setObjectName("menuHeaderVersion");
+        layout->addWidget(versionLabel);
+    }
+};
 
 class SystemTray : public QSystemTrayIcon {
 public:
@@ -73,6 +104,16 @@ private:
         menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
         menu->setAttribute(Qt::WA_TranslucentBackground);
 
+        // macOS 风格顶部品牌状态卡片（Header Card）
+        const QString verStr = [] {
+            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.19");
+            if (v.isEmpty()) v = QStringLiteral("1.19");
+            if (v.count('.') > 1 && v.endsWith(".0")) v.chop(2);
+            return QString("v%1").arg(v);
+        }();
+        auto* headerAction = new QWidgetAction(menu);
+        headerAction->setDefaultWidget(new MenuHeaderWidget(verStr, menu));
+
         auto* act_update = new QAction("Check for Updates...", menu);
         auto* act_settings = new QAction("Settings...", menu);
         auto* act_startup = new QAction("Start with Windows", menu);
@@ -80,6 +121,7 @@ private:
         menu_monitor->setWindowFlags(menu_monitor->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
         menu_monitor->setAttribute(Qt::WA_TranslucentBackground);
         auto* act_quit = new QAction("Quit SwitchTask", menu);
+        act_quit->setShortcut(QKeySequence("Ctrl+Q"));
 
         connect(act_update, &QAction::triggered, this, [this] {
             updateReminderPending = false; // 菜单已打开更新：提醒视为已处理
@@ -139,6 +181,8 @@ private:
 
         connect(act_quit, &QAction::triggered, qApp, &QApplication::quit);
 
+        menu->addAction(headerAction);
+        menu->addSeparator(); // 顶部品牌卡片与功能区微光分隔线
         menu->addAction(act_update);
         menu->addAction(act_settings);
         menu->addSeparator(); // 逻辑分组 1：应用维护与配置
