@@ -44,10 +44,9 @@ namespace Theme {
     inline QColor labelColor() { return QColor(245, 245, 247); }
     inline QColor hoverFill() { return QColor(255, 255, 255, 25); }
 
-    /// 选中底：macOS 风格中性光晕白胶囊（半透明乳白）+ 细高光描边，
-    /// 清晰辨识当前项，同时让窗口应用图标作为视觉主角，拒绝生硬实色块遮盖
-    inline QColor selectionFill() { return QColor(255, 255, 255, 48); }
-    inline QColor selectionStroke() { return QColor(255, 255, 255, 75); }
+    /// 选中底（经典马卡龙·婴儿蓝）：#A2D2FF（α240）——柔和醒目，在深色 HUD 上圆润饱满、零硬描环
+    inline QColor selectionFill() { return QColor(162, 210, 255, 240); }
+    inline QColor selectionStroke() { return QColor(255, 255, 255, 60); }
 
     // ---------- 面板背景材质（Apple 式细化：光影/受光缘）----------
     /// 光影渐变：顶部微提亮（环境漫反射层）

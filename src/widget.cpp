@@ -337,8 +337,9 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    // macOS 风格：Apple G2 连续曲率平滑圆角（外面板 r=20，展现舒展大气的 macOS 现代 HUD 视觉规范）+ 细描边
-    QPainterPath panel = Util::smoothRoundedRectPath(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 20);
+    // macOS 风格：圆润连续圆角面板（r=16）+ 细描边
+    QPainterPath panel;
+    panel.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 16, 16);
     painter.setPen(Qt::NoPen);
     painter.setBrush(panelFillColor); // 主题变更由 applyTheme() 同步，绘制路径零 QSettings 读取
     painter.drawPath(panel);
@@ -354,9 +355,10 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
         painter.drawPath(panel);
     }
 
-    // 顶部受光缘（内侧细微高光，随平滑圆角自然过渡与淡出）
+    // 顶部受光缘（内侧细微高光，随圆角自然过渡与淡出）
     {
-        QPainterPath inner = Util::smoothRoundedRectPath(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5), 19);
+        QPainterPath inner;
+        inner.addRoundedRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5), 15, 15);
         QLinearGradient edge(0, 0, 0, 4);
         edge.setColorAt(0.0, Theme::panelTopSheen());
         edge.setColorAt(1.0, Qt::transparent);
