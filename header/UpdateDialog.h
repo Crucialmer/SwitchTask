@@ -1,4 +1,4 @@
-﻿#ifndef WIN_SWITCHER_UPDATEDIALOG_H
+#ifndef WIN_SWITCHER_UPDATEDIALOG_H
 #define WIN_SWITCHER_UPDATEDIALOG_H
 
 #include <QApplication>
@@ -14,6 +14,8 @@ namespace Ui {
 }
 
 QT_END_NAMESPACE
+
+class MacTitleBar;
 
 class UpdateDialog final : public QDialog {
     Q_OBJECT
@@ -37,9 +39,11 @@ signals:
 
 protected:
     void showEvent(QShowEvent*) override;
+    void paintEvent(QPaintEvent*) override;
 
 private:
     Ui::UpdateDialog* ui;
+    MacTitleBar* m_titleBar = nullptr;
     QNetworkAccessManager manager;
     static constexpr auto Owner = "Crucialmer";
     static constexpr auto Repo = "SwitchTask"; // 自更新检查指向本仓库的 Release

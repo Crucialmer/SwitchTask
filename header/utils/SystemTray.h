@@ -18,6 +18,7 @@
 #include "ConfigManager.h"
 #include "UpdateChecker.h"
 #include "UpdateDialog.h"
+#include "SettingsDialog.h"
 #include "Theme.h"
 #include "setWindowBlur.h"
 
@@ -57,7 +58,7 @@ public:
     explicit MenuHeaderWidget(const QString& version, QWidget* parent = nullptr) : QWidget(parent) {
         setObjectName("menuHeaderWidget");
         setCursor(Qt::PointingHandCursor);
-        setToolTip(QStringLiteral("点击打开配置文件/设置..."));
+        setToolTip(QStringLiteral("点击打开设置..."));
 
         auto* rootLayout = new QVBoxLayout(this);
         rootLayout->setContentsMargins(4, 3, 4, 3);
@@ -148,14 +149,7 @@ protected:
     }
 
 private:
-    void handleClick() {
-        CFG.editConfigFile();
-        if (auto* m = qobject_cast<QMenu*>(parentWidget())) {
-            m->close();
-        } else if (parentWidget()) {
-            parentWidget()->close();
-        }
-    }
+    void handleClick();
 
     QFrame* card = nullptr;
     StatusDot* statusDot = nullptr;
@@ -223,8 +217,8 @@ private:
 
         // macOS 风格顶部品牌状态卡片（Header Card，对标 Tcursor 2.5.2）
         const QString verStr = [] {
-            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.21");
-            if (v.isEmpty()) v = QStringLiteral("1.21");
+            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.22");
+            if (v.isEmpty()) v = QStringLiteral("1.22");
             if (v.count('.') > 1 && v.endsWith(".0")) v.chop(2);
             return QString("v%1").arg(v);
         }();
@@ -248,22 +242,18 @@ private:
         });
 
         connect(act_settings, &QAction::triggered, this, [] {
-            CFG.editConfigFile();
+            showSettingsDialog();
         });
         connect(&CFG, &ConfigManager::configEdited, this, [this] {
-            lastToastWasUpdate = false; // 本条非“更新可用”：messageClicked 归属修正（托盘单击兜底不受影响）
-            this->showMessage("配置已更新", "已自动重新加载");
+            lastToastWasUpdate = false;
         });
 
         act_startup->setCheckable(true);
         // triggered vs toggled: setChecked() will emit `toggled`, but not `triggered` (which is pure user action)
         connect(act_startup, &QAction::triggered, this, [this](bool checked) {
-            lastToastWasUpdate = false; // 同上：本条通知非“更新可用”
+            Q_UNUSED(checked);
+            lastToastWasUpdate = false;
             Startup::toggle();
-            if (Startup::isOn() == checked) // toggle 后缓存已重建（invalidateCache），此处直读缓存不阻塞
-                this->showMessage("开机自启动", checked ? "已开启 √" : "已关闭 ×");
-            else
-                this->showMessage("操作失败", "修改开机自启状态失败", Warning);
         });
         // aboutToShow 时查询，反映真实状态（isOn 带 60s 缓存 + 启动时预热，菜单弹出不再等 schtasks 子进程）
         connect(menu, &QMenu::aboutToShow, act_startup, [act_startup] {
@@ -291,10 +281,9 @@ private:
             });
 
             connect(monitorGroup, &QActionGroup::triggered, this, [this](QAction* act) {
-                lastToastWasUpdate = false; // 同上
+                lastToastWasUpdate = false;
                 auto monitor = static_cast<DisplayMonitor>(act->data().toInt());
                 CFG.setDisplayMonitor(monitor);
-                this->showMessage("显示器已切换", act->text());
             });
         }
 
@@ -347,11 +336,22 @@ private:
         m->setStyleSheet(Theme::menuStyleSheet());
     }
 
+public:
+    /// 打开 macOS 26 风格设置窗口
+    static void showSettingsDialog() {
+        static auto* dlg = new SettingsDialog;
+        dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
+    }
+
     /// 打开更新对话框（托盘菜单与“更新可用”通知点击共用同一入口）
     static void showUpdateDialog() {
         // !不要用 static 局部变量对象：程序结束时析构可能访问已清理的 qApp 资源（"No style available without QApplication!"）
         static auto* dlg = new UpdateDialog;
         dlg->show();
+        dlg->raise();
+        dlg->activateWindow();
     }
 
 private:
@@ -362,5 +362,14 @@ private:
     bool updateReminderPending = false; // 更新提醒存续（未处理）：托盘图标单击兜底路径用；被消费时清除
     bool lastToastWasUpdate = false;    // 最近一条通知是否为“更新可用”：messageClicked 的归属判定
 };
+
+inline void MenuHeaderWidget::handleClick() {
+    SystemTray::showSettingsDialog();
+    if (auto* m = qobject_cast<QMenu*>(parentWidget())) {
+        m->close();
+    } else if (parentWidget()) {
+        parentWidget()->close();
+    }
+}
 
 #endif //WIN_SWITCHER_SYSTEMTRAY_H

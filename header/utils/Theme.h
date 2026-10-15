@@ -186,6 +186,134 @@ namespace Theme {
         qss.replace("@STATUS_TEXT@", css(statusText));
         return qss;
     }
+
+    /// macOS 26 窗口全局样式表（UpdateDialog、SettingsDialog 等托盘弹出窗口通用）
+    inline QString macDialogStyleSheet() {
+        const bool dark = isDark();
+        const auto customFontFamily = CFG.get("menu/font_family", "").toString().trimmed();
+        QString fontFamily;
+        if (!customFontFamily.isEmpty()) {
+            if (customFontFamily.contains('\'') || customFontFamily.contains('"') || customFontFamily.contains(',')) {
+                fontFamily = customFontFamily + QStringLiteral(", 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif");
+            } else {
+                fontFamily = QStringLiteral("'%1', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif").arg(customFontFamily);
+            }
+        } else {
+            fontFamily = QStringLiteral("'Microsoft YaHei UI', 'Microsoft YaHei', 'Segoe UI Variable Text', 'Segoe UI', -apple-system, sans-serif");
+        }
+
+        const QString frameBg = dark ? QStringLiteral("rgba(30, 30, 35, 235)") : QStringLiteral("rgba(246, 246, 248, 238)");
+        const QString frameBorder = dark ? QStringLiteral("rgba(255, 255, 255, 38)") : QStringLiteral("rgba(0, 0, 0, 30)");
+        const QString text = dark ? QStringLiteral("#F2F2F5") : QStringLiteral("#1C1C1E");
+        const QString dim = dark ? QStringLiteral("#A1A1A6") : QStringLiteral("#6E6E73");
+        const QString cardBg = dark ? QStringLiteral("rgba(255, 255, 255, 12)") : QStringLiteral("rgba(255, 255, 255, 180)");
+        const QString cardBorder = dark ? QStringLiteral("rgba(255, 255, 255, 20)") : QStringLiteral("rgba(0, 0, 0, 16)");
+        const QString btnSecBg = dark ? QStringLiteral("rgba(255, 255, 255, 22)") : QStringLiteral("rgba(0, 0, 0, 14)");
+        const QString btnSecHover = dark ? QStringLiteral("rgba(255, 255, 255, 36)") : QStringLiteral("rgba(0, 0, 0, 24)");
+        const QString btnSecBorder = dark ? QStringLiteral("rgba(255, 255, 255, 30)") : QStringLiteral("rgba(0, 0, 0, 24)");
+        const QString progBg = dark ? QStringLiteral("rgba(255, 255, 255, 25)") : QStringLiteral("rgba(0, 0, 0, 20)");
+
+        return QStringLiteral(
+            "#macWindowFrame {"
+            "  background-color: %1;"
+            "  border: 1px solid %2;"
+            "  border-radius: 12px;"
+            "  font-family: %3;"
+            "}"
+            "#macTitleBarTitle {"
+            "  font-family: %3;"
+            "  font-size: 13px;"
+            "  font-weight: 700;"
+            "  color: %4;"
+            "  background: transparent;"
+            "}"
+            "#macCard {"
+            "  background-color: %5;"
+            "  border: 1px solid %6;"
+            "  border-radius: 8px;"
+            "  padding: 10px 14px;"
+            "}"
+            "QLabel {"
+            "  font-family: %3;"
+            "  color: %4;"
+            "  font-size: 12px;"
+            "  background: transparent;"
+            "}"
+            "QLabel#label_dim {"
+            "  color: %7;"
+            "  font-size: 11px;"
+            "}"
+            "QLabel#label_section {"
+            "  font-weight: 700;"
+            "  font-size: 12px;"
+            "  color: %4;"
+            "}"
+            "QCheckBox, QRadioButton {"
+            "  font-family: %3;"
+            "  font-size: 12px;"
+            "  font-weight: 500;"
+            "  color: %4;"
+            "  spacing: 8px;"
+            "  background: transparent;"
+            "}"
+            "QCheckBox::indicator, QRadioButton::indicator {"
+            "  width: 15px;"
+            "  height: 15px;"
+            "  border-radius: 4px;"
+            "  border: 1px solid %6;"
+            "  background-color: %5;"
+            "}"
+            "QRadioButton::indicator { border-radius: 7px; }"
+            "QCheckBox::indicator:checked, QRadioButton::indicator:checked {"
+            "  background-color: #007AFF;"
+            "  border-color: #007AFF;"
+            "}"
+            "QPushButton#btn_primary, QPushButton#btn_update, QPushButton#btn_done {"
+            "  background-color: #007AFF;"
+            "  color: #FFFFFF;"
+            "  font-family: %3;"
+            "  font-size: 12px;"
+            "  font-weight: 600;"
+            "  border-radius: 6px;"
+            "  padding: 6px 18px;"
+            "  border: none;"
+            "}"
+            "QPushButton#btn_primary:hover, QPushButton#btn_update:hover, QPushButton#btn_done:hover {"
+            "  background-color: #0066D6;"
+            "}"
+            "QPushButton#btn_primary:pressed, QPushButton#btn_update:pressed, QPushButton#btn_done:pressed {"
+            "  background-color: #0051B3;"
+            "}"
+            "QPushButton#btn_primary:disabled, QPushButton#btn_update:disabled, QPushButton#btn_done:disabled {"
+            "  background-color: rgba(0, 122, 255, 90);"
+            "  color: rgba(255, 255, 255, 140);"
+            "}"
+            "QPushButton#btn_secondary, QPushButton#btn_recheck, QPushButton#btn_config {"
+            "  background-color: %8;"
+            "  color: %4;"
+            "  font-family: %3;"
+            "  font-size: 12px;"
+            "  font-weight: 500;"
+            "  border-radius: 6px;"
+            "  padding: 6px 14px;"
+            "  border: 1px solid %9;"
+            "}"
+            "QPushButton#btn_secondary:hover, QPushButton#btn_recheck:hover, QPushButton#btn_config:hover {"
+            "  background-color: %10;"
+            "}"
+            "QProgressBar {"
+            "  background-color: %11;"
+            "  border-radius: 4px;"
+            "  height: 8px;"
+            "  text-align: center;"
+            "  border: none;"
+            "}"
+            "QProgressBar::chunk {"
+            "  background-color: #007AFF;"
+            "  border-radius: 4px;"
+            "}"
+        ).arg(frameBg, frameBorder, fontFamily, text, cardBg, cardBorder, dim, btnSecBg, btnSecBorder, btnSecHover, progBg);
+    }
 } // namespace Theme
 
 #endif //WIN_SWITCHER_THEME_H

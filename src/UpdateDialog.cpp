@@ -16,6 +16,11 @@
 #include <QFileInfo>
 #include "utils/SystemTray.h"
 #include "utils/Theme.h"
+#include "utils/MacTitleBar.h"
+#include "utils/setWindowBlur.h"
+#include "utils/Util.h"
+#include <QStyleOption>
+#include <QPainter>
 #include "QtCore/private/qzipreader_p.h"
 
 /// 更新链路白名单：仅放行 https + GitHub 及其资源 CDN 主机（防重定向到任意站点）
@@ -85,9 +90,26 @@ static bool extractZipTo(const QString& zipPath, const QString& destDir) {
 }
 
 UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::UpdateDialog) {
+    setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint | Qt::WindowStaysOnTopHint);
+    setAttribute(Qt::WA_TranslucentBackground);
+    setAttribute(Qt::WA_StyledBackground, true);
+    setObjectName("macWindowFrame");
+
     ui->setupUi(this);
-    setWindowFlag(Qt::WindowStaysOnTopHint);
-    setWindowTitle("SwitchTask Updater[GitHub]");
+    setWindowTitle("SwitchTask 检查更新");
+
+    m_titleBar = new MacTitleBar(QStringLiteral("SwitchTask 检查更新"), this);
+    ui->verticalLayout->insertWidget(0, m_titleBar);
+    ui->verticalLayout->setContentsMargins(18, 0, 18, 14);
+    ui->verticalLayout->setSpacing(8);
+
+    ui->btn_update->setText(QStringLiteral("立即更新"));
+    ui->btn_update->setObjectName("btn_update");
+    ui->btn_recheck->setText(QStringLiteral("重新检查"));
+    ui->btn_recheck->setObjectName("btn_recheck");
+    ui->label_newVer->setObjectName("label_section");
+    ui->label_ver->setObjectName("label_dim");
+
     qDebug() << QSslSocket::sslLibraryBuildVersionString() << QSslSocket::supportsSsl();
 
     manager.setTransferTimeout(10000); // 10s -> Operation canceled
@@ -170,7 +192,6 @@ void UpdateDialog::fetchGithubReleaseInfo() {
         if (reply->error() != QNetworkReply::NoError) {
             qWarning() << "Failed to fetch update info" << reply->errorString();
             ui->textBrowser->setMarkdown("## Failed to fetch update info❎\n" + reply->errorString());
-            sysTray.showMessage("Failed to fetch update info", reply->errorString());
             ui->btn_update->setEnabled(false); // 失败态：按钮与下载地址一并复位，避免仍指向上次成功获取的旧版本
             relInfo.downloadUrl.clear();
             relInfo.digest.clear();
@@ -222,12 +243,12 @@ void UpdateDialog::fetchGithubReleaseInfo() {
         }
 
         qDebug() << "Update info fetched" << relInfo.ver << relInfo.downloadUrl;
-        ui->label_newVer->setText(QString("New Version: v%1 (%2)").arg(relInfo.ver.toString(), relInfo.publishTime));
-        ui->label_ver->setText(QString("Current Version: v%1").arg(version.toString()));
+        ui->label_newVer->setText(QStringLiteral("最新版本：v%1 (%2)").arg(relInfo.ver.toString(), relInfo.publishTime));
+        ui->label_ver->setText(QStringLiteral("当前版本：v%1").arg(version.toString()));
 
         bool needUpdate = relInfo.ver.normalized() > version.normalized(); // 归一化比较：两段/三段（1.0 ↔ 1.0.0）等价，与自证/CI 校验同一纪律
         // 如果要支持网络图片，必须重写`QTextBrowser::loadResource`，默认是作为本地文件处理
-        ui->textBrowser->setMarkdown(needUpdate ? relInfo.description : "# ✅Everything is up-to-date");
+        ui->textBrowser->setMarkdown(needUpdate ? relInfo.description : QStringLiteral("# ✅ 当前已是最新版本"));
         // 下载进行中不得重新点亮 Update（否则可二进下载流程、覆盖共享状态）
         ui->btn_update->setEnabled(needUpdate && !downloadStatus.reply);
     });
@@ -300,7 +321,6 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
             qWarning() << "Download failed" << reply->errorString() << httpStatus;
             QFile::remove(downloadStatus.file.fileName()); // 清理半成品
             ui->textBrowser->setMarkdown("## Download failed❎ [" + reply->url().host() + "]\n" + reply->errorString());
-            sysTray.showMessage("Download failed", reply->errorString());
         } else {
             // sha256 校验（有则校验：GitHub API 对新版资产提供 `sha256:` digest；旧资产可能为空则跳过）
             if (downloadStatus.digest.startsWith(QStringLiteral("sha256:"))) {
@@ -323,7 +343,6 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
                 qWarning() << "#Unknown digest format, skipped:" << downloadStatus.digest;
             }
             ui->textBrowser->setMarkdown("## Download success✅");
-            sysTray.showMessage("Download Status", "Success!");
             emit downloadSucceed(downloadStatus.file.fileName());
         }
     });
@@ -414,8 +433,13 @@ void UpdateDialog::verifyUpdate(const QCoreApplication& app) {
     }
 }
 
-void UpdateDialog::showEvent(QShowEvent*) {
+void UpdateDialog::showEvent(QShowEvent* event) {
+    QDialog::showEvent(event);
+    setWindowBlur(reinterpret_cast<HWND>(winId()));
+    Util::setWindowRoundCorner(reinterpret_cast<HWND>(winId()));
     applyTheme(); // 同一实例会被复用：每次显示时同步当前主题
+    MacTitleBar::positionBottomRight(this, 24);
+
     if (downloadStatus.reply)
         return;
     // 节流：距上次成功获取不足 10 分钟直接复用现有内容（匿名 API 限流 60 次/小时/IP）；
@@ -428,11 +452,26 @@ void UpdateDialog::showEvent(QShowEvent*) {
         fetchGithubReleaseInfo();
 }
 
+void UpdateDialog::paintEvent(QPaintEvent* event) {
+    Q_UNUSED(event);
+    QStyleOption opt;
+    opt.initFrom(this);
+    QPainter p(this);
+    style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
+}
+
 /// 更新说明区随深浅色模式着色（QSS 需设实底，圆角才生效）
 void UpdateDialog::applyTheme() {
+    setStyleSheet(Theme::macDialogStyleSheet());
+    const bool dark = Theme::isDark();
+    const QString cardBg = dark ? QStringLiteral("rgba(255, 255, 255, 12)") : QStringLiteral("rgba(255, 255, 255, 180)");
+    const QString cardBorder = dark ? QStringLiteral("rgba(255, 255, 255, 20)") : QStringLiteral("rgba(0, 0, 0, 16)");
+    const QString text = dark ? QStringLiteral("#F2F2F5") : QStringLiteral("#1C1C1E");
+    const QString dim = dark ? QStringLiteral("#A1A1A6") : QStringLiteral("#6E6E73");
+
     ui->textBrowser->setStyleSheet(QStringLiteral(
-        "QTextBrowser { font: bold 10pt \"Microsoft YaHei UI\", \"微软雅黑\"; padding: 5px; border-radius: 5px; background-color: %1; }")
-        .arg(Theme::dialogSurface().name()));
-    // 「Current Version」次级文字随主题（原 .ui 固定 #7A7A7A，深色下偏暗；浅色保持原值不变）
-    ui->label_ver->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::dialogSecondaryText().name()));
+        "QTextBrowser { font: bold 10pt \"Microsoft YaHei UI\", \"微软雅黑\"; padding: 8px; border-radius: 8px; background-color: %1; border: 1px solid %2; color: %3; }")
+        .arg(cardBg, cardBorder, text));
+    ui->label_ver->setStyleSheet(QStringLiteral("color: %1;").arg(dim));
 }
+
