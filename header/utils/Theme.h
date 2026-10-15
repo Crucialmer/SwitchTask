@@ -63,41 +63,47 @@ namespace Theme {
     inline QColor dialogSecondaryText() { return isDark() ? QColor(0x9E, 0x9E, 0x9E) : QColor(0x7A, 0x7A, 0x7A); }
 
     // ---------- 托盘菜单样式表 ----------
-    /// macOS 风格：圆角 + 毛玻璃透底 + 品牌色选中胶囊 + 圆形指示点（随模式切换重新应用）
-    /// 注：右箭头使用 svg 的固定次级灰 #8E8E93（两种主题一致，属有意的次级墨色；菜单文字则随主题）
+    /// macOS 风格：平滑圆角 + 通透毛玻璃 + 原生 Checkmark 指示器 + 优雅悬停胶囊（随模式切换即时重绘）
     inline QString menuStyleSheet() {
         const bool dark = isDark();
         auto css = [](const QColor& c) { return c.name(QColor::HexArgb); };
-        const QColor bg = dark ? QColor(40, 40, 40, 236) : lightSurface(250);
-        const QColor border = dark ? QColor(255, 255, 255, 34) : QColor(0, 0, 0, 26);
-        const QColor text = dark ? QColor(238, 238, 238) : QColor(40, 40, 40);
-        const QColor disabled = dark ? QColor(255, 255, 255, 84) : QColor(0, 0, 0, 80);
-        const QColor separator = dark ? QColor(255, 255, 255, 30) : QColor(0, 0, 0, 22);
-        const QColor selBg = brandColor(232);
-        const QColor selText = QColor(18, 42, 66);
-        const QColor dotRing = dark ? QColor(255, 255, 255, 90) : QColor(0, 0, 0, 70);
-        const QColor dotFill = brandColor(255);
+        // macOS 风格：通透毛玻璃底色（约 78%~80% alpha，配合 SetWindowCompositionAttribute 呈现通透的环境磨砂光影）
+        const QColor bg = dark ? QColor(32, 32, 36, 198) : QColor(248, 248, 250, 204);
+        const QColor border = dark ? QColor(255, 255, 255, 38) : QColor(0, 0, 0, 26);
+        const QColor text = dark ? QColor(242, 242, 245) : QColor(28, 28, 30);
+        const QColor disabled = dark ? QColor(255, 255, 255, 75) : QColor(0, 0, 0, 70);
+        const QColor separator = dark ? QColor(255, 255, 255, 26) : QColor(0, 0, 0, 20);
+
+        // 选中悬停态（macOS 菜单高亮胶囊）：
+        // 深色模式：微光白半透明胶囊 + 纯白高亮字；
+        // 浅色模式：经典品牌马卡龙·婴儿蓝胶囊 + 高对比度深蓝文字
+        const QColor selBg = dark ? QColor(255, 255, 255, 34) : brandColor(220);
+        const QColor selText = dark ? QColor(255, 255, 255) : QColor(10, 30, 56);
+        const QString checkIcon = dark ? QStringLiteral(":/img/checkmark-dark.svg") : QStringLiteral(":/img/checkmark-light.svg");
+
         return QStringLiteral(
                    "QMenu {"
-                   "  background-color: %1;" // 面板底色（毛玻璃之上的一层着色）
+                   "  background-color: %1;"
                    "  border: 1px solid %2;"
                    "  border-radius: 10px;"
-                   "  padding: 6px;"
+                   "  padding: 5px;"
+                   "  font-family: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, sans-serif;"
+                   "  font-size: 12px;"
                    "}"
                    "QMenu::item {"
-                   "  padding: 7px 30px 7px 34px;" // 左侧预留指示点栏位
-                   "  border-radius: 7px;"
+                   "  padding: 5px 22px 5px 26px;"
+                   "  border-radius: 5px;"
                    "  margin: 1px 2px;"
                    "  color: %3;"
                    "  background: transparent;"
                    "}"
                    "QMenu::item:selected { background-color: %4; color: %5; }"
                    "QMenu::item:disabled { color: %6; }"
-                   "QMenu::separator { height: 1px; background: %7; margin: 5px 10px; }"
-                   "QMenu::indicator { width: 14px; height: 14px; margin-left: 10px; }"
-                   "QMenu::indicator:checked { background-color: %8; border-radius: 7px; }"
-                   "QMenu::indicator:unchecked { border: 1px solid %9; border-radius: 7px; background: transparent; }"
-                   "QMenu::right-arrow { image: url(:/img/chevron-right.svg); width: 12px; height: 12px; margin-right: 6px; }")
+                   "QMenu::separator { height: 1px; background: %7; margin: 4px 8px; }"
+                   "QMenu::indicator { width: 12px; height: 12px; margin-left: 7px; }"
+                   "QMenu::indicator:checked { image: url(%8); }"
+                   "QMenu::indicator:unchecked { image: none; border: none; background: transparent; }"
+                   "QMenu::right-arrow { image: url(:/img/chevron-right.svg); width: 11px; height: 11px; margin-right: 5px; }")
             .arg(css(bg))
             .arg(css(border))
             .arg(css(text))
@@ -105,8 +111,7 @@ namespace Theme {
             .arg(css(selText))
             .arg(css(disabled))
             .arg(css(separator))
-            .arg(css(dotFill))
-            .arg(css(dotRing));
+            .arg(checkIcon);
     }
 } // namespace Theme
 

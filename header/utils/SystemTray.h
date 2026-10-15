@@ -1,4 +1,4 @@
-﻿#ifndef WIN_SWITCHER_SYSTEMTRAY_H
+#ifndef WIN_SWITCHER_SYSTEMTRAY_H
 #define WIN_SWITCHER_SYSTEMTRAY_H
 
 #include <QAction>
@@ -73,13 +73,13 @@ private:
         menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
         menu->setAttribute(Qt::WA_TranslucentBackground);
 
-        auto* act_update = new QAction("Check for Updates", menu);
-        auto* act_settings = new QAction("Settings", menu);
+        auto* act_update = new QAction("Check for Updates...", menu);
+        auto* act_settings = new QAction("Settings...", menu);
         auto* act_startup = new QAction("Start with Windows", menu);
         menu_monitor = new QMenu("Display Monitor", menu);
         menu_monitor->setWindowFlags(menu_monitor->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
         menu_monitor->setAttribute(Qt::WA_TranslucentBackground);
-        auto* act_quit = new QAction("Quit", menu);
+        auto* act_quit = new QAction("Quit SwitchTask", menu);
 
         connect(act_update, &QAction::triggered, this, [this] {
             updateReminderPending = false; // 菜单已打开更新：提醒视为已处理
@@ -107,12 +107,6 @@ private:
         // aboutToShow 时查询，反映真实状态（isOn 带 60s 缓存 + 启动时预热，菜单弹出不再等 schtasks 子进程）
         connect(menu, &QMenu::aboutToShow, act_startup, [act_startup] {
             act_startup->setChecked(Startup::isOn());
-
-            static auto text = act_startup->text();
-            if (IsUserAnAdmin() && !Startup::isOn_reg())
-                act_startup->setText(text + "🔑️"); // 意味着接下来的操作需要管理员权限（操作schtask）
-            else
-                act_startup->setText(text);
         });
 
         // menu_monitor
@@ -147,9 +141,10 @@ private:
 
         menu->addAction(act_update);
         menu->addAction(act_settings);
+        menu->addSeparator(); // 逻辑分组 1：应用维护与配置
         menu->addAction(act_startup);
         menu->addMenu(menu_monitor);
-        menu->addSeparator(); // 结构分隔：功能性操作与退出分开
+        menu->addSeparator(); // 逻辑分组 2：系统行为与退出
         menu->addAction(act_quit);
         this->setContextMenu(menu);
 

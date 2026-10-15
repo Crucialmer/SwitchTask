@@ -2,5 +2,7 @@
     <qresource prefix="/">
         <file>img/icon.ico</file>
         <file>img/chevron-right.svg</file>
+        <file>img/checkmark-dark.svg</file>
+        <file>img/checkmark-light.svg</file>
     </qresource>
 </RCC>
