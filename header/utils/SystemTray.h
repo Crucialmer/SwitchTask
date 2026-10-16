@@ -137,7 +137,7 @@ public:
     }
 
     QSize sizeHint() const override {
-        return QSize(195, 58);
+        return QSize(178, 58);
     }
 
 protected:
@@ -231,7 +231,7 @@ private:
         menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
         menu->setAttribute(Qt::WA_TranslucentBackground);
 
-        menu->setMinimumWidth(195);
+        menu->setMinimumWidth(178);
 
         // macOS 风格顶部品牌状态卡片（Header Card，极简纯粹，不标版本号，版本于设置窗口展示）
         headerWidget = new MenuHeaderWidget(menu);

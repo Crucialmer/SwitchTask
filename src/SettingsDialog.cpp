@@ -86,8 +86,8 @@ void SettingsDialog::setupUi() {
     auto* heroTitle = new QLabel(QStringLiteral("SwitchTask"), heroWidget);
     heroTitle->setObjectName("label_heroTitle");
     const QString verStr = [] {
-        auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.28");
-        if (v.isEmpty()) v = QStringLiteral("1.28");
+        auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.29");
+        if (v.isEmpty()) v = QStringLiteral("1.29");
         if (v.count('.') > 1 && v.endsWith(".0")) v.chop(2);
         return QString("v%1").arg(v);
     }();
