@@ -1,4 +1,4 @@
-﻿#ifndef WIN_SWITCHER_CONFIGMANAGER_H
+#ifndef WIN_SWITCHER_CONFIGMANAGER_H
 #define WIN_SWITCHER_CONFIGMANAGER_H
 
 #include <QSettings>
@@ -31,22 +31,8 @@ public:
     ConfigManager& operator=(const ConfigManager&) = delete;
 
     static ConfigManager& instance() {
-        static const auto filePath = [] {
-            // 注意：QFileInfo::isWritable() 在 Windows 上默认只检查 READONLY 属性（NTFS ACL 检查需
-            // 启用 qt_ntfs_permission_lookup，默认关闭），对 Program Files 会误报可写。
-            // 因此这里用"实测写临时文件"来判断目录是否真的可写。
-            const auto appDir = QApplication::applicationDirPath();
-            QTemporaryFile probe(appDir + "/.writable_probe_XXXXXX.tmp");
-            const bool writable = probe.open();
-            probe.remove(); // QTemporaryFile 析构会自动删除，这里显式删除以保险
-            if (!writable) {
-                qWarning() << "Application dir not writable, config fallback to AppData";
-                const auto appData = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-                QDir().mkpath(appData);
-                return appData + "/" + FileName;
-            }
-            return appDir + "/" + FileName;
-        }();
+        // 实时绿色运行模式：配置始终严格保存在程序自身目录下，绝不向 AppData 写入残留文件
+        static const auto filePath = QApplication::applicationDirPath() + "/" + FileName;
         static ConfigManager instance{filePath}; // multiple threads safe
         return instance;
     }

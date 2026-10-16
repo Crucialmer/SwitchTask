@@ -519,11 +519,41 @@ bool Widget::prepareListWidget() {
     const int initialRow = (winList.size() >= 2 && winList.at(0).hwnd == GetForegroundWindow()) ? 1 : 0;
 
     // calculate Geometry
+    if (lw->count() == 0) {
+        // 无可切换窗口：确保弹窗不驻留（清空后的空面板不能留在屏幕上）
+        pinned = false;
+        hide();
+        return false;
+    }
+    relayoutGeometry(screen);
+
+    // set current item（initialRow 已在上方统一判定）
+    if (lw->count() >= 1)
+        lw->setCurrentRow(initialRow); //! 首次显示时，该行特别耗时：472ms
+
+    return true;
+}
+
+/// 重新计算面板几何尺寸与居中位置（条目增减时维持 macOS 风格绝对对称）
+void Widget::relayoutGeometry(QScreen* targetScreen) {
+    if (!lw || lw->count() == 0) return;
+    auto* screen = targetScreen;
+    if (!screen) {
+        screen = QGuiApplication::screenAt(this->geometry().center());
+    }
+    if (!screen) {
+        const bool displayOnPrimary = (CFG.getDisplayMonitor() == PrimaryMonitor);
+        screen = displayOnPrimary ?
+                      QGuiApplication::primaryScreen() :
+                      QGuiApplication::screenAt(QCursor::pos());
+    }
+    if (!screen) screen = QApplication::primaryScreen();
+    if (!screen) return;
+
     if (auto firstItem = lw->item(0)) {
         auto firstRect = lw->visualItemRect(firstItem);
-        auto width = lw->gridSize().width() * lw->count() + (firstRect.x() - lw->frameWidth()); // 一些微小的噼里啪啦修正
-        // 宽度夹取：压缩到 CELL_MIN 仍可能超屏（如 1280 逻辑宽 ≈26 窗口起）——对任意 N 兑现
-        // “保证整行容纳在屏幕内”承诺：超宽部分截断 + 日志（出屏条目仅键盘循环可达）
+        auto width = lw->gridSize().width() * lw->count() + (firstRect.x() - lw->frameWidth());
+        // 宽度夹取：保证整行容纳在屏幕可用区内
         const int maxListW = screen->availableGeometry().width() - ListWidgetMargin.left() - ListWidgetMargin.right();
         if (width > maxListW) {
             const int hidden = lw->count() - qMax(1, maxListW / qMax(1, lw->gridSize().width()));
@@ -533,87 +563,60 @@ bool Widget::prepareListWidget() {
         }
         lw->setFixedWidth(width);
 
-        // move to scrren center
-        qDebug() << "Screen:" << screen->name();
         auto lwRect = lw->rect();
         auto thisRect = lwRect.marginsAdded(ListWidgetMargin);
 
-        // macOS 风格：面板宽度至少容纳“本组全部任务标题”的最大宽度（标题上限 560 逻辑px；超出部分由省略号处理）。
-        // 用户裁决 B（2026-10-15）：定宽不再绑定“初始选中项”——同一组任务在任意前台状态下呼出宽度一致
-        // （此前按初始选中项定宽，同一组 2 任务因呼出时前台不同实测 208↔433 逻辑px 不一致）
+        // macOS 风格：面板宽度至少容纳“当前全部任务标题”的最大宽度
         {
-            constexpr int kLabelTextCap = 560; // 标题最大展示宽度（逻辑px，约 42 个汉字）
+            constexpr int kLabelTextCap = 560;
             const QFontMetrics fm(ui->label->font());
             int maxTitleW = 0;
-            for (const auto& info: winList) {
-                QString text = info.title;
-                if (text.isEmpty())
-                    text = Util::getFileDescription(info.exePath);
-                maxTitleW = qMax(maxTitleW, fm.horizontalAdvance(text));
+            for (int i = 0; i < lw->count(); ++i) {
+                if (auto* item = lw->item(i)) {
+                    auto info = item->data(Qt::UserRole).value<WindowInfo>();
+                    QString text = info.title;
+                    if (text.isEmpty())
+                        text = Util::getFileDescription(info.exePath);
+                    maxTitleW = qMax(maxTitleW, fm.horizontalAdvance(text));
+                }
             }
             if (maxTitleW > 0) {
-                const int wantW = qMin(maxTitleW, kLabelTextCap) + 16; // 左右各留 8px
-                const int maxW = screen->availableGeometry().width() - 64; // 屏幕安全余量
+                const int wantW = qMin(maxTitleW, kLabelTextCap) + 16;
+                const int maxW = screen->availableGeometry().width() - 64;
                 thisRect.setWidth(qMax(thisRect.width(), qMin(wantW, maxW)));
             }
         }
 
-        // macOS 风格：垂直留白近似对称——图标顶边距（上边距 + 图标内缩）与文字底边距对应；
-        // 标题字号变大时，底部留白随之增大（每次弹窗按当前字号实时计算）。
-        // 用户裁决（2026-10-14）：文字下方到底边的留白较顶部再收窄一点点（顶部与图标-文字距离不动）
+        // macOS 风格：垂直留白近似对称
         {
             const auto fm = QFontMetrics(ui->label->font());
             const int iconInset = (lw->gridSize().width() - lw->iconSize().width()) / 2;
-            const int gapBelowText = ListWidgetMargin.top() + iconInset; // 基准等距值（= 图标顶边距）
-            constexpr int kBottomPadTrim = 6; // 底部留白再收窄的微调量（逻辑px；视觉平衡用）
-            const int bottomPad = qMax(0, gapBelowText - fm.descent() - kBottomPadTrim); // 可见文字底（基线附近）到面板底 ≈ 基准 - 微调
+            const int gapBelowText = ListWidgetMargin.top() + iconInset;
+            constexpr int kBottomPadTrim = 6;
+            const int bottomPad = qMax(0, gapBelowText - fm.descent() - kBottomPadTrim);
             thisRect.setHeight(ListWidgetMargin.top() + lw->gridSize().height() + kCellLabelGap + fm.height() + bottomPad);
         }
 
         thisRect.moveCenter(screen->geometry().center());
 
-        // 水平夹取：标题加宽后仍可能超“可用区”宽度——贴边而非出屏（别用 geometry()：竖排任务栏会重叠）
+        // 水平夹取：贴边而非出屏
         const auto availGeo = screen->availableGeometry();
         if (thisRect.left() < availGeo.left())
             thisRect.moveLeft(availGeo.left());
         else if (thisRect.right() > availGeo.right())
             thisRect.moveRight(availGeo.right());
 
-        //region Fixed in Qt6, see commit [b927ee4b]
-        //      !!!WARNING: 对于多屏幕，直接使用setGeometry or move会报错(QWindowsWindow::setGeometry: Unable to set geometry) & size显示不正确！
-        //      报错时机为：从一个屏幕hide，再在另一个屏幕show; 第二次在同一个屏幕show，则正常
-        //      size显示不正确不能忍，遂改用WinAPI
-        //endregion
         this->setGeometry(thisRect);
 
-        //region Fixed in Qt6, see commit [b927ee4b]
-        //this->windowHandle()->setScreen(screen); // 若首次显示是在副屏，会导致size显示错误（如果没有这行）
-        // `toNativePixels`是针对Point的，会根据屏幕原点进行位移
-        // 对于其他类型（如Size），直接乘以`QHighDpiScaling::factor(screen)`即可
-        //auto physicalPos = QHighDpi::toNativePixels(thisRect.topLeft(), screen);
-        // 如果用SetWindowPos的话要注意加上`SWP_NOACTIVATE`，否则焦点有问题，没错，NoActive反而是Active (focus)的
-        //SetWindowPos(hWnd(), nullptr, physicalPos.x(), physicalPos.y(), 0, 0, SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER);
-        // !!!NOTE: 用WinAPI控制size貌似有问题，在图标增减的时候，无法正确调整Width，离子谱；只能用resize
-        // 1. × 猜想是showNormal()恢复了原有的size，导致resize无效；但是改成show()也不行
-        // 2. 猜想是隐藏状态改变size无效？（不科学吧），但是在`SetWindowPos`前show()好像会好一点（第二次显示调整size成功）aaa
-        //this->resize(thisRect.size());
-        //endregion
-
-        lwRect.moveLeft((this->width() - lwRect.width()) / 2); // 水平居中（面板可能因标题加宽）
-        lwRect.moveTop(ListWidgetMargin.top());                // 顶部固定：底部留白按“文字等距”规则确定
+        lwRect.moveLeft((this->width() - lwRect.width()) / 2); // 水平居中
+        lwRect.moveTop(ListWidgetMargin.top());                // 顶部固定
         lw->move(lwRect.topLeft());
-    } else {
-        // 无可切换窗口：确保弹窗不驻留（清空后的空面板不能留在屏幕上）
-        pinned = false;
-        hide();
-        return false;
+
+        if (auto* cur = lw->currentItem()) {
+            showLabelForItem(cur);
+        }
+        update(); // 触发面板亚克力圆角底色与描边重绘
     }
-
-    // set current item（initialRow 已在上方统一判定）
-    if (lw->count() >= 1)
-        lw->setCurrentRow(initialRow); //! 首次显示时，该行特别耗时：472ms
-
-    return true;
 }
 
 bool Widget::requestShow() { // TODO 当前台是开始菜单（Win）时，会导致显示 但无法操控
@@ -666,7 +669,10 @@ void Widget::closeWindowItem(QListWidgetItem* item) {
     if (lw->count() == 0) { // 已无可切换窗口：整体收起
         pinned = false;
         hide();
+        return;
     }
+    // 实时重新排版并居中，保持对称外观，消除右侧空缺
+    relayoutGeometry();
 }
 
 /// Ctrl+W：关闭当前选中项对应的窗口（无选中时无操作；行为与鼠标中键一致）

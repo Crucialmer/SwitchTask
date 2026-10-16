@@ -21,8 +21,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     setAttribute(Qt::WA_StyledBackground, true);
     setAttribute(Qt::WA_DeleteOnClose);
     setObjectName("macWindowFrame");
-    setMinimumSize(500, 560);
-    resize(520, 580);
+    setMinimumSize(460, 500);
+    resize(480, 520);
     setWindowTitle("SwitchTask 设置");
 
     setupUi();
@@ -58,8 +58,8 @@ void SettingsDialog::setupUi() {
     scrollContent->setAttribute(Qt::WA_TranslucentBackground);
 
     auto* contentLayout = new QVBoxLayout(scrollContent);
-    contentLayout->setContentsMargins(18, 12, 18, 12);
-    contentLayout->setSpacing(10);
+    contentLayout->setContentsMargins(14, 10, 14, 10);
+    contentLayout->setSpacing(8);
 
     // 顶部 Hero 品牌区域（40px 高清 Squircle 图标 + 品牌名 + 版本徽标 + 8K 副标题）
     auto* heroWidget = new QWidget(scrollContent);
@@ -112,8 +112,8 @@ void SettingsDialog::setupUi() {
     auto* cardStartup = new QFrame(scrollContent);
     cardStartup->setObjectName("macCard");
     auto* layoutStartup = new QHBoxLayout(cardStartup);
-    layoutStartup->setContentsMargins(14, 12, 14, 12);
-    layoutStartup->setSpacing(12);
+    layoutStartup->setContentsMargins(12, 9, 12, 9);
+    layoutStartup->setSpacing(10);
 
     auto* badgeStartup = new MacCategoryBadge(MacCategoryBadge::Rocket, QColor(0x00, 0x7A, 0xFF), cardStartup);
     auto* textStartupLayout = new QVBoxLayout();
@@ -140,8 +140,8 @@ void SettingsDialog::setupUi() {
     auto* cardMonitor = new QFrame(scrollContent);
     cardMonitor->setObjectName("macCard");
     auto* layoutMonitor = new QVBoxLayout(cardMonitor);
-    layoutMonitor->setContentsMargins(14, 12, 14, 12);
-    layoutMonitor->setSpacing(10);
+    layoutMonitor->setContentsMargins(12, 9, 12, 9);
+    layoutMonitor->setSpacing(8);
 
     auto* headerMonitorRow = new QHBoxLayout();
     headerMonitorRow->setContentsMargins(0, 0, 0, 0);
@@ -176,8 +176,8 @@ void SettingsDialog::setupUi() {
     auto* cardTheme = new QFrame(scrollContent);
     cardTheme->setObjectName("macCard");
     auto* layoutTheme = new QVBoxLayout(cardTheme);
-    layoutTheme->setContentsMargins(14, 12, 14, 12);
-    layoutTheme->setSpacing(10);
+    layoutTheme->setContentsMargins(12, 9, 12, 9);
+    layoutTheme->setSpacing(8);
 
     auto* headerThemeRow = new QHBoxLayout();
     headerThemeRow->setContentsMargins(0, 0, 0, 0);
@@ -213,8 +213,8 @@ void SettingsDialog::setupUi() {
     auto* cardConfig = new QFrame(scrollContent);
     cardConfig->setObjectName("macCard");
     auto* layoutConfig = new QHBoxLayout(cardConfig);
-    layoutConfig->setContentsMargins(14, 12, 14, 12);
-    layoutConfig->setSpacing(12);
+    layoutConfig->setContentsMargins(12, 9, 12, 9);
+    layoutConfig->setSpacing(10);
 
     auto* badgeConfig = new MacCategoryBadge(MacCategoryBadge::Gear, QColor(0x8E, 0x8E, 0x93), cardConfig);
     auto* textConfigLayout = new QVBoxLayout();
@@ -246,7 +246,7 @@ void SettingsDialog::setupUi() {
     auto* bottomBar = new QWidget(this);
     bottomBar->setObjectName("settingsBottomBar");
     auto* bottomRow = new QHBoxLayout(bottomBar);
-    bottomRow->setContentsMargins(18, 10, 18, 14);
+    bottomRow->setContentsMargins(14, 8, 14, 10);
     bottomRow->setSpacing(10);
 
     m_checkUpdateBtn = new QPushButton(QStringLiteral("检查更新..."), bottomBar);

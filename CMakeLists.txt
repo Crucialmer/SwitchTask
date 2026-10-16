@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SwitchTask VERSION 1.0.0) # SwitchTask v1.0 正式里程碑版本基线
+project(SwitchTask VERSION 2.0.0) # SwitchTask v2.0 重大里程碑版本
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -119,5 +119,9 @@ if (MSVC)
             /utf-8
             /W4            # 开启高等级警告
             /permissive-   # 标准一致性
+    )
+    # 强制以标准用户权限（asInvoker）运行，关闭并禁止管理员提权与 UAC 弹窗
+    target_link_options(${PROJECT_NAME} PRIVATE
+            "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
     )
 endif ()

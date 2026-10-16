@@ -1,4 +1,4 @@
-﻿#ifndef WIN_SWITCHER_WIDGET_H
+#ifndef WIN_SWITCHER_WIDGET_H
 #define WIN_SWITCHER_WIDGET_H
 
 #include <QWidget>
@@ -83,6 +83,8 @@ private:
     void startSelectionGrow();
     /// 循环选择（forward=true 下一个 / false 上一个）
     void cycleSelection(bool forward);
+    /// 重新计算面板几何尺寸与居中位置（条目增减时维持 macOS 风格绝对对称）
+    void relayoutGeometry(QScreen* targetScreen = nullptr);
     void showLabelForItem(QListWidgetItem* item);
     void setupLabelFont();
     /// 应用当前深浅色主题：底部标题颜色、选中/悬停/描边色、面板与列表重绘
