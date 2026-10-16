@@ -17,6 +17,7 @@
 #include "utils/SystemTray.h"
 #include "utils/Theme.h"
 #include "utils/MacTitleBar.h"
+#include "utils/MacToast.h"
 #include "utils/setWindowBlur.h"
 #include "utils/Util.h"
 #include <QStyleOption>
@@ -503,13 +504,25 @@ void UpdateDialog::verifyUpdate(const QCoreApplication& app) {
             auto vCur = QVersionNumber::fromString(QCoreApplication::applicationVersion());
             if (vCur.normalized() == vTo.normalized()) {
                 qDebug() << "Update success";
-                sysTray.showMessage("Verify Update", "Update Success to v" + vTo.toString());
+                MacToast::showToast(
+                    QStringLiteral("SwitchTask 更新成功"),
+                    QStringLiteral("已成功升级至版本 v%1，新特性与优化已生效！").arg(vTo.toString()),
+                    MacToast::Success
+                );
             } else if (vCur.normalized() == vFrom.normalized()) {
                 qWarning() << "Update failed, version not change" << vFrom << vTo << vCur;
-                sysTray.showMessage("Verify Update", "Update failed, version not change", QSystemTrayIcon::Critical);
+                MacToast::showToast(
+                    QStringLiteral("更新未完成"),
+                    QStringLiteral("版本未发生变更（当前仍为 v%1），请稍后重试。").arg(vCur.toString()),
+                    MacToast::Warning
+                );
             } else {
                 qWarning() << "Update may failed, version changed but not to target" << vFrom << vTo << vCur;
-                sysTray.showMessage("Verify Update", "Update may failed, version changed but not to target", QSystemTrayIcon::Warning);
+                MacToast::showToast(
+                    QStringLiteral("版本提示"),
+                    QStringLiteral("版本已变更至 v%1（目标版本为 v%2）。").arg(vCur.toString(), vTo.toString()),
+                    MacToast::Info
+                );
             }
         } else
             qWarning() << "Invalid version change" << parser.value(versionUpdate);

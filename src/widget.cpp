@@ -26,6 +26,7 @@
 #include "utils/SystemTray.h"
 #include "utils/ConfigManager.h"
 #include "utils/Theme.h"
+#include "utils/MacToast.h"
 
 // 图标模式：true=优先每个窗口自身的图标（可区分不同文件夹/头像；源图通常 32px，放大到 64px 实测偏糊）；
 // false=统一应用图标（锐利）+ QQ 窗口叠加聊天头像角标。2026-10-11 实测后采用 false（B 方案）
@@ -462,7 +463,7 @@ bool Widget::prepareListWidget() {
     }
     if (!screen) {
         qWarning() << "Screen nullptr!";
-        sysTray.showMessage("Error", "Screen nullptr!");
+        MacToast::showToast("SwitchTask", "未检测到可用显示器屏幕", MacToast::Type::Warning);
         pinned = false;
         hide(); // 列表不可用 ⇒ 弹窗不驻留（否则空面板会留在屏幕上）
         return false;

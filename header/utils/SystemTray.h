@@ -19,6 +19,7 @@
 #include "UpdateChecker.h"
 #include "UpdateDialog.h"
 #include "SettingsDialog.h"
+#include "MacToast.h"
 #include "Theme.h"
 #include "setWindowBlur.h"
 
@@ -181,11 +182,17 @@ private:
         connect(updateChecker, &UpdateChecker::newVersionFound, this, [this](const QString& ver) {
             updateReminderPending = true; // 提醒存续（未处理）：托盘图标单击兜底路径用
             lastToastWasUpdate = true;    // 归属标记：本条通知即“更新可用”
-            // 可交互时长取系统上限 ~30s：实测系统只在其超时前派发点击（超时后气泡即使仍在屏上，
-            // 点击也仅解散气泡、不传回应用）——久置气泡点击不可依赖，另配托盘单击兜底（见 activated）
-            showMessage("发现新版本",
-                        QString("SwitchTask v%1 已发布 — 点击查看详情。").arg(ver),
-                        QSystemTrayIcon::Information, 30000);
+            MacToast::showToast(
+                QStringLiteral("发现新版本"),
+                QStringLiteral("SwitchTask v%1 现已推出 — 点击查看详情并更新。").arg(ver),
+                MacToast::Info,
+                7000,
+                [this] {
+                    updateReminderPending = false;
+                    lastToastWasUpdate = false;
+                    showUpdateDialog();
+                }
+            );
         });
         connect(this, &QSystemTrayIcon::messageClicked, this, [this] {
             // 只响应“更新可用”那条通知的点击（lastToastWasUpdate 由各通知发出处维护；
@@ -217,8 +224,8 @@ private:
 
         // macOS 风格顶部品牌状态卡片（Header Card，对标 Tcursor 2.5.2）
         const QString verStr = [] {
-            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.23");
-            if (v.isEmpty()) v = QStringLiteral("1.23");
+            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.24");
+            if (v.isEmpty()) v = QStringLiteral("1.24");
             if (v.count('.') > 1 && v.endsWith(".0")) v.chop(2);
             return QString("v%1").arg(v);
         }();

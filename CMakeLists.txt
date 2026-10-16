@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SwitchTask VERSION 1.23.0) # 版本线基线 v1.0（2026-10-13 重置）；当前 v1.23.0
+project(SwitchTask VERSION 1.24.0) # 版本线基线 v1.0（2026-10-13 重置）；当前 v1.24.0
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -74,6 +74,8 @@ add_executable(${PROJECT_NAME} src/main.cpp
         header/utils/ConfigManagerBase.h
         header/utils/Theme.h
         header/utils/MacTitleBar.h
+        header/utils/MacToast.h
+        src/utils/MacToast.cpp
         header/SettingsDialog.h
         src/SettingsDialog.cpp
         src/UpdateDialog.cpp
