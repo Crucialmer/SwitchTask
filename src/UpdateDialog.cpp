@@ -94,6 +94,7 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_StyledBackground, true);
     setObjectName("macWindowFrame");
+    setFixedSize(500, 460);
 
     ui->setupUi(this);
     setWindowTitle("SwitchTask 检查更新");
@@ -103,67 +104,100 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
     ui->verticalLayout->setContentsMargins(18, 0, 18, 14);
     ui->verticalLayout->setSpacing(8);
 
-    ui->btn_update->setText(QStringLiteral("立即更新"));
-    ui->btn_update->setObjectName("btn_update");
-    ui->btn_recheck->setText(QStringLiteral("重新检查"));
-    ui->btn_recheck->setObjectName("btn_recheck");
-    ui->label_newVer->setObjectName("label_section");
+    // macOS 26 专属 48px 应用图标展示
+    ui->label_icon->setPixmap(QIcon(":/img/icon.ico").pixmap(48, 48));
+    ui->label_icon->setFixedSize(48, 48);
+
+    ui->label_appName->setObjectName("label_appName");
+    ui->label_badge->setObjectName("badge_gray");
     ui->label_ver->setObjectName("label_dim");
+    ui->label_notesHeader->setObjectName("label_section");
+    ui->label_notesTag->setObjectName("label_dim");
+    ui->label_progress->setObjectName("label_dim");
+
+    ui->btn_update->setText(QStringLiteral("立即更新"));
+    ui->btn_update->setObjectName("btn_primary");
+    ui->btn_recheck->setText(QStringLiteral("重新检查"));
+    ui->btn_recheck->setObjectName("btn_secondary");
+    ui->btn_online->setText(QStringLiteral("在 GitHub 查看"));
+    ui->btn_online->setObjectName("btn_online");
 
     qDebug() << QSslSocket::sslLibraryBuildVersionString() << QSslSocket::supportsSsl();
 
     manager.setTransferTimeout(10000); // 10s -> Operation canceled
-    ui->progressBar->hide();
-    applyTheme(); // 更新说明区配色跟随深浅色模式
-    ui->btn_update->setEnabled(false); // 首次 fetch 结果返回前不允许点击（避免误导性的“无可下载资产”报错）
+    ui->progressWidget->hide();
+    applyTheme();
+    ui->btn_update->setEnabled(false);
+    ui->btn_online->setEnabled(false);
+
+    connect(ui->btn_online, &QPushButton::clicked, this, [this] {
+        const QString url = relInfo.ver.isNull()
+            ? QStringLiteral("https://github.com/Crucialmer/SwitchTask/releases")
+            : QStringLiteral("https://github.com/Crucialmer/SwitchTask/releases/tag/v%1").arg(relInfo.ver.toString());
+        QDesktopServices::openUrl(QUrl(url));
+    });
+
     connect(ui->btn_recheck, &QPushButton::clicked, this, &UpdateDialog::fetchGithubReleaseInfo);
+
     connect(ui->btn_update, &QPushButton::clicked, this, [this] {
-        auto url = relInfo.downloadUrl;
-        if (url.isEmpty()) { // 防御：Release 未提供可下载资产时不得进入下载流程（原先会拼出目录路径并以难懂的报错收场）
-            ui->textBrowser->setMarkdown("## Failed❎\nNo downloadable asset in this release");
+        if (ui->btn_update->text() == QStringLiteral("完成") || ui->btn_update->text() == QStringLiteral("好")) {
+            close();
             return;
         }
-        // 下载源白名单：必须是本仓库 releases/download 路径（防 API 响应被替换后指向他处）
+        auto url = relInfo.downloadUrl;
+        if (url.isEmpty()) {
+            ui->textBrowser->setMarkdown(QStringLiteral("### 无法下载❎\n\n当前 Release 未提供可下载的资产文件。"));
+            return;
+        }
         const auto expectedPrefix = QStringLiteral("https://github.com/%1/%2/releases/download/").arg(Owner, Repo);
         if (!url.startsWith(expectedPrefix)) {
             qWarning() << "#Download blocked, unexpected URL:" << url;
-            ui->textBrowser->setMarkdown("## Download blocked❎\nUnexpected download URL");
+            ui->textBrowser->setMarkdown(QStringLiteral("### 下载被阻止❎\n\n检测到非法的下载地址来源。"));
             return;
         }
         ui->btn_update->setEnabled(false);
+        ui->btn_recheck->setEnabled(false);
+        ui->progressWidget->show();
+        ui->label_progress->setText(QStringLiteral("正在连接下载服务器..."));
+        ui->progressBar->setValue(0);
         archive.fileName = QUrl(url).fileName();
         download(url, qApp->applicationDirPath() + '/' + archive.fileName);
     });
+
     connect(this, &UpdateDialog::downloadSucceed, this, [this](const QString& filePath) {
         qDebug() << "Download succeed" << filePath;
-        if (filePath.endsWith(".zip", Qt::CaseInsensitive)) { // 大小写不敏感
+        if (filePath.endsWith(".zip", Qt::CaseInsensitive)) {
             auto relDir = QDir(qApp->applicationDirPath() + '/' + archive.extractDir);
             relDir.removeRecursively();
             if (extractZipTo(filePath, relDir.absolutePath()) && relDir.exists()) {
                 auto entryInfos = relDir.entryInfoList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
-                if (entryInfos.size() == 1 && entryInfos.first().isDir()) { // 有可能还套了一层根目录
+                if (entryInfos.size() == 1 && entryInfos.first().isDir()) {
                     relDir.cd(entryInfos.first().fileName());
                 }
                 qDebug() << "release extract dir:" << relDir.absolutePath();
                 const auto batPath = writeBat(relDir.absolutePath(), qApp->applicationDirPath());
                 if (batPath.isEmpty() || !QDesktopServices::openUrl(QUrl::fromLocalFile(batPath))) {
                     qWarning() << "#Failed to start updater bat:" << batPath;
-                    ui->textBrowser->setMarkdown("## Failed to start updater❎\nPlease retry, or download the update manually from the releases page");
-                    return; // 不退出：更新未发生，保留当前会话与重试机会
+                    ui->textBrowser->setMarkdown(QStringLiteral("### 启动更新失败❎\n\n未能启动批处理更新程序，请稍后重试或前往 GitHub 手动下载。"));
+                    ui->btn_update->setEnabled(true);
+                    ui->btn_recheck->setEnabled(true);
+                    return;
                 }
-                qApp->quit(); //
+                qApp->quit();
             } else {
                 qWarning() << "Extract failed" << filePath;
-                ui->textBrowser->setMarkdown("## Extract failed❎");
+                ui->textBrowser->setMarkdown(QStringLiteral("### 解压失败❎\n\n更新包解压过程异常，文件可能损坏。"));
+                ui->btn_update->setEnabled(true);
+                ui->btn_recheck->setEnabled(true);
             }
         } else {
-            // 其他格式可能需要7z.exe支持
             qWarning() << "Unsupported file type" << filePath;
-            ui->textBrowser->setMarkdown("## Unsupported file type❎");
+            ui->textBrowser->setMarkdown(QStringLiteral("### 不支持的文件格式❎"));
+            ui->btn_update->setEnabled(true);
+            ui->btn_recheck->setEnabled(true);
         }
     });
 
-    // 系统深浅色切换时即时刷新说明区配色（showEvent 的调用保留为兜底；本对话框实例常驻复用）
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
         applyTheme();
     });
@@ -175,12 +209,21 @@ UpdateDialog::~UpdateDialog() {
 }
 
 void UpdateDialog::fetchGithubReleaseInfo() {
-    ui->textBrowser->setMarkdown("## Fetching...");
+    ui->label_badge->setText(QStringLiteral("检查中..."));
+    ui->label_badge->setObjectName("badge_gray");
+    ui->label_ver->setText(QStringLiteral("正在连接 GitHub 获取最新版本信息..."));
+    ui->label_notesTag->setText(QStringLiteral("Checking"));
+    ui->textBrowser->setMarkdown(QStringLiteral("### 正在获取 Release 变更日志...\n\n请稍候，SwitchTask 正在从 GitHub 获取最新的发布记录。"));
+    ui->progressWidget->hide();
+    ui->btn_update->setText(QStringLiteral("立即更新"));
+    ui->btn_update->setEnabled(false);
+    ui->btn_online->setEnabled(false);
+    applyTheme();
+
     const QString ApiUrl = QString("https://api.github.com/repos/%1/%2/releases/latest").arg(Owner, Repo);
     QNetworkRequest request(ApiUrl);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     auto* reply = manager.get(request);
-    // 重定向逐跳校验（与下载同一白名单；api.github.com 正常不重定向，属防御）
     connect(reply, &QNetworkReply::redirected, this, [reply](const QUrl& redirectUrl) {
         if (!isAllowedGithubUrl(redirectUrl)) {
             qWarning() << "#Fetch redirect to disallowed host:" << redirectUrl.toString();
@@ -191,13 +234,24 @@ void UpdateDialog::fetchGithubReleaseInfo() {
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
             qWarning() << "Failed to fetch update info" << reply->errorString();
-            ui->textBrowser->setMarkdown("## Failed to fetch update info❎\n" + reply->errorString());
-            ui->btn_update->setEnabled(false); // 失败态：按钮与下载地址一并复位，避免仍指向上次成功获取的旧版本
+            ui->label_badge->setText(QStringLiteral("获取失败"));
+            ui->label_badge->setObjectName("badge_gray");
+            ui->label_ver->setText(QStringLiteral("网络异常或 GitHub API 限流"));
+            ui->label_notesTag->setText(QStringLiteral("Error"));
+            ui->textBrowser->setMarkdown(QStringLiteral(
+                "### ⚠️ 检查更新失败\n\n"
+                "无法从 GitHub 获取最新版本信息：**%1**\n\n"
+                "- 请检查您的网络连接与代理配置\n"
+                "- 您可以点击下方「重新检查」重试，或点击「在 GitHub 查看」前往发布页手动下载。")
+                .arg(reply->errorString()));
+            ui->btn_update->setEnabled(false);
+            ui->btn_online->setEnabled(true);
+            applyTheme();
             relInfo.downloadUrl.clear();
             relInfo.digest.clear();
             return;
         }
-        lastFetchMs = QDateTime::currentMSecsSinceEpoch(); // 网络成功才计入节流窗口（失败可立即重试）
+        lastFetchMs = QDateTime::currentMSecsSinceEpoch();
         const auto data = reply->readAll();
         const QJsonDocument doc = QJsonDocument::fromJson(data);
         const auto obj = doc.object();
@@ -205,23 +259,26 @@ void UpdateDialog::fetchGithubReleaseInfo() {
         relInfo.ver = normalizeVersion(obj["tag_name"].toString());
         relInfo.description = obj["body"].toString();
         relInfo.publishTime = toLocalTime(obj["published_at"].toString());
-        if (relInfo.ver.isNull()) { // tag 非 `vX.Y.Z` 形式：明确报错，避免空版本与当前版本比较后静默显示“已是最新”
+        if (relInfo.ver.isNull()) {
             qWarning() << "Cannot parse release tag:" << obj["tag_name"].toString();
-            ui->textBrowser->setMarkdown("## Cannot parse release tag❎\n" + obj["tag_name"].toString());
+            ui->label_badge->setText(QStringLiteral("解析失败"));
+            ui->label_badge->setObjectName("badge_gray");
+            ui->label_ver->setText(QStringLiteral("无法识别的 Release 标签"));
+            ui->textBrowser->setMarkdown(QStringLiteral("### 无法识别 Release 标签❎\n\n%1").arg(obj["tag_name"].toString()));
             ui->btn_update->setEnabled(false);
-            relInfo.downloadUrl.clear(); // 同上：失败态不得残留可下载地址
+            ui->btn_online->setEnabled(true);
+            applyTheme();
+            relInfo.downloadUrl.clear();
             relInfo.digest.clear();
             return;
         }
 
-        relInfo.downloadUrl.clear(); // 无条件清空：assets 缺失时也不得残留上次请求的下载地址（否则可能误下载旧版本）
+        relInfo.downloadUrl.clear();
         relInfo.digest.clear();
         if (const auto assets = obj["assets"].toArray(); !assets.isEmpty()) {
-            // 资产选择：优先精确匹配标准资产名 SwitchTask.zip；退化任意 .zip；再退化第一个 asset——
-            // 避免取到非压缩包或顺序不确定导致错误下载
             const auto pick = [this](const QJsonObject& asset) {
                 relInfo.downloadUrl = asset["browser_download_url"].toString();
-                relInfo.digest = asset["digest"].toString(); // 可能为空（旧资产）：有则校验、无则跳过
+                relInfo.digest = asset["digest"].toString();
             };
             for (const auto& asset: assets) {
                 if (asset.toObject()["name"].toString() == QStringLiteral("SwitchTask.zip")) {
@@ -237,20 +294,42 @@ void UpdateDialog::fetchGithubReleaseInfo() {
                     }
                 }
             }
-            if (relInfo.downloadUrl.isEmpty()) { // fallback 到第一个 asset（保持原行为）
+            if (relInfo.downloadUrl.isEmpty()) {
                 pick(assets.first().toObject());
             }
         }
 
         qDebug() << "Update info fetched" << relInfo.ver << relInfo.downloadUrl;
-        ui->label_newVer->setText(QStringLiteral("最新版本：v%1 (%2)").arg(relInfo.ver.toString(), relInfo.publishTime));
-        ui->label_ver->setText(QStringLiteral("当前版本：v%1").arg(version.toString()));
 
-        bool needUpdate = relInfo.ver.normalized() > version.normalized(); // 归一化比较：两段/三段（1.0 ↔ 1.0.0）等价，与自证/CI 校验同一纪律
-        // 如果要支持网络图片，必须重写`QTextBrowser::loadResource`，默认是作为本地文件处理
-        ui->textBrowser->setMarkdown(needUpdate ? relInfo.description : QStringLiteral("# ✅ 当前已是最新版本"));
-        // 下载进行中不得重新点亮 Update（否则可二进下载流程、覆盖共享状态）
-        ui->btn_update->setEnabled(needUpdate && !downloadStatus.reply);
+        bool needUpdate = relInfo.ver.normalized() > version.normalized();
+        if (needUpdate) {
+            ui->label_badge->setText(QStringLiteral("发现新版本"));
+            ui->label_badge->setObjectName("badge_blue");
+            ui->label_ver->setText(QStringLiteral("当前安装 v%1 ➔ 官方最新 v%2 (%3)")
+                .arg(version.toString(), relInfo.ver.toString(), relInfo.publishTime));
+            ui->label_notesTag->setText(QString("v%1").arg(relInfo.ver.toString()));
+            ui->textBrowser->setMarkdown(relInfo.description.trimmed().isEmpty()
+                ? QStringLiteral("### SwitchTask v%1 已发布\n\n请点击下方「立即更新」进行自动更新。").arg(relInfo.ver.toString())
+                : relInfo.description);
+            ui->btn_update->setText(QStringLiteral("立即更新"));
+            ui->btn_update->setEnabled(!downloadStatus.reply);
+        } else {
+            ui->label_badge->setText(QStringLiteral("已是最新"));
+            ui->label_badge->setObjectName("badge_green");
+            ui->label_ver->setText(QStringLiteral("当前安装：v%1 · 官方最新稳定版").arg(version.toString()));
+            ui->label_notesTag->setText(QString("v%1 (最新)").arg(version.toString()));
+            ui->textBrowser->setMarkdown(QStringLiteral(
+                "### 🎉 您的 SwitchTask 已经是最新的稳定版本！\n\n"
+                "当前安装的 **v%1** 为官方最新发布版本，暂无可用更新。\n\n"
+                "- **运行状态**：快捷切换就绪，功能全部正常\n"
+                "- **发布时间**：%2\n"
+                "- **静默守护**：系统后台将在启动时及每 24 小时自动复查，有新版本时将自动提醒您")
+                .arg(version.toString(), relInfo.publishTime));
+            ui->btn_update->setText(QStringLiteral("完成"));
+            ui->btn_update->setEnabled(true);
+        }
+        applyTheme();
+        ui->btn_online->setEnabled(true);
     });
 }
 
@@ -271,7 +350,8 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
             reply->abort();
         }
     });
-    ui->progressBar->show();
+    ui->progressWidget->show();
+    ui->label_progress->setText(QStringLiteral("正在连接下载服务器..."));
     ui->progressBar->setValue(0);
     ui->progressBar->setMaximum(0); // unknown size
 
@@ -279,10 +359,10 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
     downloadStatus.file.setFileName(savePath);
     if (!downloadStatus.file.open(QIODevice::WriteOnly)) { // 检查打开是否成功（Program Files 不可写场景）
         qWarning() << "Failed to open file for writing:" << savePath;
-        ui->textBrowser->setMarkdown("## Cannot write to file❎\n" + savePath);
+        ui->textBrowser->setMarkdown(QStringLiteral("### 无法写入文件❎\n\n%1").arg(savePath));
         ui->btn_update->setEnabled(true);
-        ui->progressBar->hide();              // 此路径早于 finished 连接：控件恢复需在此显式完成
-        ui->btn_recheck->setEnabled(true);    // （原先进度条永转、按钮永灰，直到下一次下载成功）
+        ui->progressWidget->hide();
+        ui->btn_recheck->setEnabled(true);
         reply->abort();
         reply->deleteLater();
         return;
@@ -297,32 +377,35 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
 
     connect(reply, &QNetworkReply::downloadProgress, this, [this](qint64 bytesReceived, qint64 bytesTotal) {
         qDebug() << "Download progress" << bytesReceived << bytesTotal;
-        // 成功判定已移至 finished 回调（以 error() + HTTP 状态码为准），此处仅更新进度条
         ui->progressBar->setMaximum(bytesTotal > 0 ? bytesTotal : 0);
         ui->progressBar->setValue(bytesReceived);
+        const auto toMB = [](qint64 b) {
+            return QString::number(static_cast<double>(b) / (1024.0 * 1024.0), 'f', 1) + " MB";
+        };
+        int pct = bytesTotal > 0 ? static_cast<int>(bytesReceived * 100 / bytesTotal) : 0;
+        ui->label_progress->setText(QStringLiteral("正在下载更新包... %1 / %2 (%3%)")
+            .arg(toMB(bytesReceived), toMB(bytesTotal), QString::number(pct)));
     });
 
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         reply->deleteLater();
         downloadStatus.reply = nullptr;
-        downloadStatus.file.close(); // close才刷新缓冲区，写入磁盘，所以必须在解压之前！不然解压概率性失败...(QZip: EndOfDirectory not found)
-        ui->progressBar->hide();
+        downloadStatus.file.close();
+        ui->progressWidget->hide();
         ui->btn_update->setEnabled(true);
-        ui->btn_recheck->setEnabled(true); // 下载结束：恢复“检查更新”
-        // 成功判定以 finished 时的错误码与 HTTP 状态码为准，而非 downloadProgress 的 bytesReceived == bytesTotal
-        // （Content-Length 缺失时 bytesTotal 恒为 -1，条件永不成立或意外成立均不可靠）
-        if (downloadStatus.blocked) { // 重定向被白名单拦截（abort 触发 finished）：给出准确报错
-            QFile::remove(downloadStatus.file.fileName()); // 清理半成品（与 sha256 失败分支同一纪律）
-            ui->textBrowser->setMarkdown("## Download blocked❎\nRedirect to disallowed host");
+        ui->btn_recheck->setEnabled(true);
+        if (downloadStatus.blocked) {
+            QFile::remove(downloadStatus.file.fileName());
+            ui->textBrowser->setMarkdown(QStringLiteral("### 下载被阻止❎\n\n重定向至非白名单主机。"));
             return;
         }
         const auto httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() != QNetworkReply::NoError || (httpStatus != 0 && httpStatus != 200)) {
             qWarning() << "Download failed" << reply->errorString() << httpStatus;
-            QFile::remove(downloadStatus.file.fileName()); // 清理半成品
-            ui->textBrowser->setMarkdown("## Download failed❎ [" + reply->url().host() + "]\n" + reply->errorString());
+            QFile::remove(downloadStatus.file.fileName());
+            ui->textBrowser->setMarkdown(QStringLiteral("### 下载失败❎ [%1]\n\n%2")
+                .arg(reply->url().host(), reply->errorString()));
         } else {
-            // sha256 校验（有则校验：GitHub API 对新版资产提供 `sha256:` digest；旧资产可能为空则跳过）
             if (downloadStatus.digest.startsWith(QStringLiteral("sha256:"))) {
                 QFile verifyFile(downloadStatus.file.fileName());
                 QString actual;
@@ -334,7 +417,7 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
                 }
                 if (actual.compare(downloadStatus.digest, Qt::CaseInsensitive) != 0) {
                     qWarning() << "#Hash mismatch:" << actual << downloadStatus.digest;
-                    ui->textBrowser->setMarkdown("## Download corrupted❎\nsha256 mismatch");
+                    ui->textBrowser->setMarkdown(QStringLiteral("### 文件校验损坏❎\n\nsha256 校验不匹配，已自动清理临时文件。"));
                     QFile::remove(downloadStatus.file.fileName());
                     return;
                 }
@@ -342,7 +425,7 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
             } else if (!downloadStatus.digest.isEmpty()) {
                 qWarning() << "#Unknown digest format, skipped:" << downloadStatus.digest;
             }
-            ui->textBrowser->setMarkdown("## Download success✅");
+            ui->textBrowser->setMarkdown(QStringLiteral("### 下载成功✅\n\n正在解压更新包并启动自动替换批处理..."));
             emit downloadSucceed(downloadStatus.file.fileName());
         }
     });
@@ -460,18 +543,7 @@ void UpdateDialog::paintEvent(QPaintEvent* event) {
     style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
 }
 
-/// 更新说明区随深浅色模式着色（QSS 需设实底，圆角才生效）
 void UpdateDialog::applyTheme() {
     setStyleSheet(Theme::macDialogStyleSheet());
-    const bool dark = Theme::isDark();
-    const QString cardBg = dark ? QStringLiteral("rgba(255, 255, 255, 12)") : QStringLiteral("rgba(255, 255, 255, 180)");
-    const QString cardBorder = dark ? QStringLiteral("rgba(255, 255, 255, 20)") : QStringLiteral("rgba(0, 0, 0, 16)");
-    const QString text = dark ? QStringLiteral("#F2F2F5") : QStringLiteral("#1C1C1E");
-    const QString dim = dark ? QStringLiteral("#A1A1A6") : QStringLiteral("#6E6E73");
-
-    ui->textBrowser->setStyleSheet(QStringLiteral(
-        "QTextBrowser { font: bold 10pt \"Microsoft YaHei UI\", \"微软雅黑\"; padding: 8px; border-radius: 8px; background-color: %1; border: 1px solid %2; color: %3; }")
-        .arg(cardBg, cardBorder, text));
-    ui->label_ver->setStyleSheet(QStringLiteral("color: %1;").arg(dim));
 }
 
