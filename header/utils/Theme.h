@@ -120,7 +120,7 @@ namespace Theme {
                    "  border: 1px solid %2;"
                    "  border-radius: 10px;"
                    "  padding: 5px;"
-                   "  min-width: 268px;"
+                   "  min-width: 195px;"
                    "  font-family: @FONT_FAMILY@;"
                    "  font-size: %3px;"
                    "  font-weight: %4;"

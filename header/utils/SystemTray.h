@@ -70,7 +70,7 @@ private:
 /// 容器具备独立温润衬底与边框，支持悬停高亮与单击直达配置/设置。
 class MenuHeaderWidget : public QWidget {
 public:
-    explicit MenuHeaderWidget(const QString& version, QWidget* parent = nullptr) : QWidget(parent) {
+    explicit MenuHeaderWidget(QWidget* parent = nullptr) : QWidget(parent) {
         setObjectName("menuHeaderWidget");
         setCursor(Qt::PointingHandCursor);
         setToolTip(QStringLiteral("点击打开设置..."));
@@ -88,7 +88,7 @@ public:
         cardLayout->setContentsMargins(10, 8, 10, 8);
         cardLayout->setSpacing(5);
 
-        // 第一行：[18px 图标] + SwitchTask 品牌名 (Bold 700) + [版本徽标小胶囊]
+        // 第一行：[18px 图标] + SwitchTask 品牌名 (Bold 700)
         auto* line1 = new QHBoxLayout();
         line1->setContentsMargins(0, 0, 0, 0);
         line1->setSpacing(8);
@@ -108,13 +108,7 @@ public:
         titleLabel->setObjectName("menuHeaderTitle");
         titleLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
         line1->addWidget(titleLabel, 0, Qt::AlignVCenter);
-
         line1->addStretch();
-
-        auto* versionLabel = new QLabel(version, card);
-        versionLabel->setObjectName("menuHeaderVersion");
-        versionLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
-        line1->addWidget(versionLabel, 0, Qt::AlignVCenter);
 
         cardLayout->addLayout(line1);
 
@@ -143,7 +137,7 @@ public:
     }
 
     QSize sizeHint() const override {
-        return QSize(268, 58);
+        return QSize(195, 58);
     }
 
 protected:
@@ -237,16 +231,10 @@ private:
         menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
         menu->setAttribute(Qt::WA_TranslucentBackground);
 
-        menu->setMinimumWidth(268);
+        menu->setMinimumWidth(195);
 
-        // macOS 风格顶部品牌状态卡片（Header Card，对标 Tcursor 2.5.2）
-        const QString verStr = [] {
-            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.27");
-            if (v.isEmpty()) v = QStringLiteral("1.27");
-            if (v.count('.') > 1 && v.endsWith(".0")) v.chop(2);
-            return QString("v%1").arg(v);
-        }();
-        headerWidget = new MenuHeaderWidget(verStr, menu);
+        // macOS 风格顶部品牌状态卡片（Header Card，极简纯粹，不标版本号，版本于设置窗口展示）
+        headerWidget = new MenuHeaderWidget(menu);
         auto* headerAction = new QWidgetAction(menu);
         headerAction->setDefaultWidget(headerWidget);
 
@@ -254,11 +242,10 @@ private:
         auto* act_settings = new QAction("设置...", menu);
         auto* act_startup = new QAction("开机自启动", menu);
         menu_monitor = new QMenu("显示器设置", menu);
-        menu_monitor->setMinimumWidth(220);
+        menu_monitor->setMinimumWidth(165);
         menu_monitor->setWindowFlags(menu_monitor->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
         menu_monitor->setAttribute(Qt::WA_TranslucentBackground);
         auto* act_quit = new QAction("退出 SwitchTask", menu);
-        act_quit->setShortcut(QKeySequence("Ctrl+Q"));
 
         connect(act_update, &QAction::triggered, this, [this] {
             updateReminderPending = false; // 菜单已打开更新：提醒视为已处理
