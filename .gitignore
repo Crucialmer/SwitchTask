@@ -1,3 +1,45 @@
-﻿cmake-build-*
-.idea
+# CMake build directories
+build/
+bin/
+out/
+cmake-build-*
+CMakeUserPresets.json
+
+# IDE and Editor configurations
+.idea/
+.vs/
+.vscode/
+*.user
+*.user.*
+CMakeLists.txt.user*
+
+# Compiler and Linker artifacts
+*.obj
+*.ilk
+*.pdb
+*.exp
+*.lib
+*.idb
+
+# Qt generated files (when building in-source)
+ui_*.h
+moc_*.cpp
+qrc_*.cpp
+
+# Packages & Archives
+SwitchTask.zip
+*.zip
+*.tar.gz
+*.7z
+
+# Logs & Temporary files
+*.log
 push.log
+*.tmp
+*.bak
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
