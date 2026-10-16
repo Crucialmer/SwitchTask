@@ -26,11 +26,11 @@
 
 #define sysTray SystemTray::instance()
 
-/// 状态呼吸圆点：抗锯齿矢量圆点绘制，默认 Apple Traffic Green (#34C759)
+/// 状态呼吸圆点：抗锯齿矢量圆点绘制，带外圈半透明柔和氛围光晕，默认 Apple Traffic Green (#34C759)
 class StatusDot : public QWidget {
 public:
     explicit StatusDot(QWidget* parent = nullptr) : QWidget(parent) {
-        setFixedSize(10, 10);
+        setFixedSize(12, 12);
         setAttribute(Qt::WA_TransparentForMouseEvents);
     }
     void setColor(const QColor& c) {
@@ -44,8 +44,21 @@ protected:
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing);
         p.setPen(Qt::NoPen);
+
+        // 外层微光光晕（Apple 呼吸氛围环）
+        QColor halo = dotColor;
+        halo.setAlpha(40);
+        p.setBrush(halo);
+        p.drawEllipse(QRectF(0.5, 0.5, 11, 11));
+
+        // 中层柔和过渡环
+        halo.setAlpha(85);
+        p.setBrush(halo);
+        p.drawEllipse(QRectF(1.75, 1.75, 8.5, 8.5));
+
+        // 核心实心高光圆点
         p.setBrush(dotColor);
-        p.drawEllipse(QRectF(1.75, 1.75, 6.5, 6.5));
+        p.drawEllipse(QRectF(3.0, 3.0, 6.0, 6.0));
     }
 private:
     QColor dotColor = QColor(0x34, 0xC7, 0x59);
@@ -82,7 +95,10 @@ public:
 
         auto* iconLabel = new QLabel(card);
         iconLabel->setObjectName("menuHeaderIcon");
-        iconLabel->setPixmap(QIcon(":/img/icon.ico").pixmap(18, 18));
+        const qreal dpr = devicePixelRatioF();
+        QPixmap iconPm = QIcon(":/img/icon.ico").pixmap(QSize(qRound(18 * dpr), qRound(18 * dpr)));
+        iconPm.setDevicePixelRatio(dpr);
+        iconLabel->setPixmap(iconPm);
         iconLabel->setFixedSize(18, 18);
         iconLabel->setStyleSheet("background: transparent;");
         iconLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -225,8 +241,8 @@ private:
 
         // macOS 风格顶部品牌状态卡片（Header Card，对标 Tcursor 2.5.2）
         const QString verStr = [] {
-            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.25");
-            if (v.isEmpty()) v = QStringLiteral("1.25");
+            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.26");
+            if (v.isEmpty()) v = QStringLiteral("1.26");
             if (v.count('.') > 1 && v.endsWith(".0")) v.chop(2);
             return QString("v%1").arg(v);
         }();

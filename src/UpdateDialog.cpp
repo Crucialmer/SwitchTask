@@ -105,8 +105,11 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
     ui->verticalLayout->setContentsMargins(18, 0, 18, 14);
     ui->verticalLayout->setSpacing(8);
 
-    // macOS 26 专属 48px 应用图标展示
-    ui->label_icon->setPixmap(QIcon(":/img/icon.ico").pixmap(48, 48));
+    // macOS 26 专属 48px 应用图标展示（适配 4K/8K 高 DPI 屏幕）
+    const qreal dpr = devicePixelRatioF();
+    QPixmap iconPm = QIcon(":/img/icon.ico").pixmap(QSize(qRound(48 * dpr), qRound(48 * dpr)));
+    iconPm.setDevicePixelRatio(dpr);
+    ui->label_icon->setPixmap(iconPm);
     ui->label_icon->setFixedSize(48, 48);
 
     ui->label_appName->setObjectName("label_appName");
@@ -534,6 +537,12 @@ void UpdateDialog::showEvent(QShowEvent* event) {
     setWindowBlur(reinterpret_cast<HWND>(winId()));
     Util::setWindowRoundCorner(reinterpret_cast<HWND>(winId()));
     applyTheme(); // 同一实例会被复用：每次显示时同步当前主题
+
+    const qreal dpr = devicePixelRatioF();
+    QPixmap iconPm = QIcon(":/img/icon.ico").pixmap(QSize(qRound(48 * dpr), qRound(48 * dpr)));
+    iconPm.setDevicePixelRatio(dpr);
+    ui->label_icon->setPixmap(iconPm);
+
     MacTitleBar::positionBottomRight(this, 24);
 
     if (downloadStatus.reply)

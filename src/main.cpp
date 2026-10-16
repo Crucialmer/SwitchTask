@@ -17,6 +17,12 @@
 #include "utils/Theme.h"
 
 int main(int argc, char* argv[]) {
+#ifdef Q_OS_WIN
+    // 启用 Windows Per-Monitor V2 高 DPI 感知，支持 4K / 8K 显示器任意比例缩放（100% ~ 400%+）
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+#endif
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+
     QApplication a(argc, argv);
     QFont defaultAppFont("Microsoft YaHei UI");
     defaultAppFont.setStyleHint(QFont::SansSerif);

@@ -12,6 +12,7 @@
 #include <QCursor>
 #include <functional>
 #include "Theme.h"
+#include "ConfigManager.h"
 
 /// macOS 交通灯控制按钮（红灯关闭、黄灯最小化、绿灯缩放）
 class MacTrafficButton : public QWidget {
@@ -145,10 +146,12 @@ public:
         if (m_titleLabel) m_titleLabel->setText(title);
     }
 
-    /// 将窗口摆放到屏幕工作区右下角（贴近系统托盘区）
+    /// 将窗口摆放到屏幕工作区右下角（贴近系统托盘区，支持多屏混合 DPI 感知）
     static void positionBottomRight(QWidget* window, int margin = 24) {
         if (!window) return;
-        QScreen* screen = QGuiApplication::screenAt(QCursor::pos());
+        QScreen* screen = (CFG.getDisplayMonitor() == PrimaryMonitor)
+            ? QGuiApplication::primaryScreen()
+            : QGuiApplication::screenAt(QCursor::pos());
         if (!screen) {
             screen = QGuiApplication::primaryScreen();
         }

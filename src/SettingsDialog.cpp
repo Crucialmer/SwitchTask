@@ -1,15 +1,17 @@
 #include "SettingsDialog.h"
 #include "utils/MacTitleBar.h"
+#include "utils/MacControls.h"
 #include "utils/ConfigManager.h"
 #include "utils/Startup.h"
 #include "utils/Theme.h"
 #include "utils/setWindowBlur.h"
 #include "utils/Util.h"
 #include "utils/SystemTray.h"
-#include <QButtonGroup>
 #include <QStyleOption>
 #include <QPainter>
 #include <QSignalBlocker>
+#include <QScreen>
+#include <QIcon>
 
 SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint | Qt::WindowStaysOnTopHint);
@@ -17,7 +19,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     setAttribute(Qt::WA_StyledBackground, true);
     setAttribute(Qt::WA_DeleteOnClose);
     setObjectName("macWindowFrame");
-    setFixedSize(460, 480);
+    setMinimumSize(490, 510);
+    resize(500, 520);
     setWindowTitle("SwitchTask 设置");
 
     setupUi();
@@ -38,107 +41,187 @@ void SettingsDialog::setupUi() {
 
     auto* contentWidget = new QWidget(this);
     auto* contentLayout = new QVBoxLayout(contentWidget);
-    contentLayout->setContentsMargins(18, 14, 18, 14);
-    contentLayout->setSpacing(10);
+    contentLayout->setContentsMargins(18, 12, 18, 14);
+    contentLayout->setSpacing(9);
 
-    // 卡片 1：启动设置
+    // 顶部 Hero 品牌区域（40px 高清 Squircle 图标 + 品牌名 + 版本徽标 + 8K 副标题）
+    auto* heroWidget = new QWidget(contentWidget);
+    auto* heroLayout = new QHBoxLayout(heroWidget);
+    heroLayout->setContentsMargins(4, 2, 4, 4);
+    heroLayout->setSpacing(12);
+
+    auto* heroIconLabel = new QLabel(heroWidget);
+    const qreal dpr = devicePixelRatioF();
+    QPixmap iconPm = QIcon(":/img/icon.ico").pixmap(QSize(qRound(40 * dpr), qRound(40 * dpr)));
+    iconPm.setDevicePixelRatio(dpr);
+    heroIconLabel->setPixmap(iconPm);
+    heroIconLabel->setFixedSize(40, 40);
+    heroLayout->addWidget(heroIconLabel, 0, Qt::AlignVCenter);
+
+    auto* heroTextLayout = new QVBoxLayout();
+    heroTextLayout->setContentsMargins(0, 0, 0, 0);
+    heroTextLayout->setSpacing(2);
+
+    auto* heroTitleRow = new QHBoxLayout();
+    heroTitleRow->setContentsMargins(0, 0, 0, 0);
+    heroTitleRow->setSpacing(8);
+
+    auto* heroTitle = new QLabel(QStringLiteral("SwitchTask"), heroWidget);
+    heroTitle->setObjectName("label_heroTitle");
+    auto* heroBadge = new QLabel(QStringLiteral("v1.26"), heroWidget);
+    heroBadge->setObjectName("badge_blue");
+
+    heroTitleRow->addWidget(heroTitle);
+    heroTitleRow->addWidget(heroBadge);
+    heroTitleRow->addStretch();
+
+    auto* heroSub = new QLabel(QStringLiteral("macOS 风格窗口切换与交互中心 · 8K 超清感知引擎"), heroWidget);
+    heroSub->setObjectName("label_dim");
+
+    heroTextLayout->addLayout(heroTitleRow);
+    heroTextLayout->addWidget(heroSub);
+    heroLayout->addLayout(heroTextLayout, 1);
+
+    contentLayout->addWidget(heroWidget);
+
+    // 卡片 1：系统开机启动（带有 macOS 胶囊滑动开关 MacToggleSwitch）
     auto* cardStartup = new QFrame(contentWidget);
     cardStartup->setObjectName("macCard");
-    auto* layoutStartup = new QVBoxLayout(cardStartup);
-    layoutStartup->setContentsMargins(12, 10, 12, 10);
-    layoutStartup->setSpacing(6);
+    auto* layoutStartup = new QHBoxLayout(cardStartup);
+    layoutStartup->setContentsMargins(12, 10, 14, 10);
+    layoutStartup->setSpacing(12);
 
-    auto* lblStartup = new QLabel(QStringLiteral("系统开机启动"), cardStartup);
+    auto* badgeStartup = new MacCategoryBadge(MacCategoryBadge::Rocket, QColor(0x00, 0x7A, 0xFF), cardStartup);
+    auto* textStartupLayout = new QVBoxLayout();
+    textStartupLayout->setContentsMargins(0, 0, 0, 0);
+    textStartupLayout->setSpacing(2);
+
+    auto* lblStartup = new QLabel(QStringLiteral("登录 Windows 时自动启动"), cardStartup);
     lblStartup->setObjectName("label_section");
-    m_startupCheck = new QCheckBox(QStringLiteral("登录 Windows 时自动启动 SwitchTask"), cardStartup);
-    layoutStartup->addWidget(lblStartup);
-    layoutStartup->addWidget(m_startupCheck);
+    auto* descStartup = new QLabel(QStringLiteral("以当前权限在系统后台静默驻留，开机即刻就绪"), cardStartup);
+    descStartup->setObjectName("label_dim");
+
+    textStartupLayout->addWidget(lblStartup);
+    textStartupLayout->addWidget(descStartup);
+
+    m_startupSwitch = new MacToggleSwitch(cardStartup);
+
+    layoutStartup->addWidget(badgeStartup, 0, Qt::AlignVCenter);
+    layoutStartup->addLayout(textStartupLayout, 1);
+    layoutStartup->addWidget(m_startupSwitch, 0, Qt::AlignVCenter);
     contentLayout->addWidget(cardStartup);
 
-    // 卡片 2：显示器偏好
+    // 卡片 2：显示器偏好（带有 macOS 原生分段选择器 MacSegmentedControl）
     auto* cardMonitor = new QFrame(contentWidget);
     cardMonitor->setObjectName("macCard");
     auto* layoutMonitor = new QVBoxLayout(cardMonitor);
     layoutMonitor->setContentsMargins(12, 10, 12, 10);
-    layoutMonitor->setSpacing(6);
+    layoutMonitor->setSpacing(8);
 
-    auto* lblMonitor = new QLabel(QStringLiteral("窗口切换器呼出显示器"), cardMonitor);
+    auto* headerMonitorRow = new QHBoxLayout();
+    headerMonitorRow->setContentsMargins(0, 0, 0, 0);
+    headerMonitorRow->setSpacing(10);
+
+    auto* badgeMonitor = new MacCategoryBadge(MacCategoryBadge::Monitor, QColor(0x58, 0x56, 0xD6), cardMonitor);
+    auto* textMonitorLayout = new QVBoxLayout();
+    textMonitorLayout->setContentsMargins(0, 0, 0, 0);
+    textMonitorLayout->setSpacing(2);
+
+    auto* lblMonitor = new QLabel(QStringLiteral("切换器呼出显示器偏好"), cardMonitor);
     lblMonitor->setObjectName("label_section");
-    m_monitorMouseRadio = new QRadioButton(QStringLiteral("跟随鼠标所在屏幕 (推荐)"), cardMonitor);
-    m_monitorPrimaryRadio = new QRadioButton(QStringLiteral("固定在主显示器"), cardMonitor);
+    auto* descMonitor = new QLabel(QStringLiteral("决定按 Alt+Tab 时切换面板弹出的目标屏幕（支持多屏混合 DPI）"), cardMonitor);
+    descMonitor->setObjectName("label_dim");
 
-    auto* monitorGroup = new QButtonGroup(this);
-    monitorGroup->addButton(m_monitorMouseRadio);
-    monitorGroup->addButton(m_monitorPrimaryRadio);
+    textMonitorLayout->addWidget(lblMonitor);
+    textMonitorLayout->addWidget(descMonitor);
+    headerMonitorRow->addWidget(badgeMonitor, 0, Qt::AlignVCenter);
+    headerMonitorRow->addLayout(textMonitorLayout, 1);
 
-    layoutMonitor->addWidget(lblMonitor);
-    layoutMonitor->addWidget(m_monitorMouseRadio);
-    layoutMonitor->addWidget(m_monitorPrimaryRadio);
+    m_monitorSeg = new MacSegmentedControl({
+        QStringLiteral("跟随鼠标所在屏幕 (推荐)"),
+        QStringLiteral("固定在主显示器")
+    }, cardMonitor);
+
+    layoutMonitor->addLayout(headerMonitorRow);
+    layoutMonitor->addWidget(m_monitorSeg);
     contentLayout->addWidget(cardMonitor);
 
-    // 卡片 3：外观主题
+    // 卡片 3：外观主题（带有 macOS 原生分段选择器 MacSegmentedControl）
     auto* cardTheme = new QFrame(contentWidget);
     cardTheme->setObjectName("macCard");
     auto* layoutTheme = new QVBoxLayout(cardTheme);
     layoutTheme->setContentsMargins(12, 10, 12, 10);
-    layoutTheme->setSpacing(6);
+    layoutTheme->setSpacing(8);
+
+    auto* headerThemeRow = new QHBoxLayout();
+    headerThemeRow->setContentsMargins(0, 0, 0, 0);
+    headerThemeRow->setSpacing(10);
+
+    auto* badgeTheme = new MacCategoryBadge(MacCategoryBadge::Palette, QColor(0xFF, 0x95, 0x00), cardTheme);
+    auto* textThemeLayout = new QVBoxLayout();
+    textThemeLayout->setContentsMargins(0, 0, 0, 0);
+    textThemeLayout->setSpacing(2);
 
     auto* lblTheme = new QLabel(QStringLiteral("界面外观主题"), cardTheme);
     lblTheme->setObjectName("label_section");
+    auto* descTheme = new QLabel(QStringLiteral("切换器面板、托盘弹出窗口与自绘气泡的外观主题"), cardTheme);
+    descTheme->setObjectName("label_dim");
 
-    auto* themeRadioLayout = new QHBoxLayout();
-    themeRadioLayout->setContentsMargins(0, 0, 0, 0);
-    themeRadioLayout->setSpacing(14);
+    textThemeLayout->addWidget(lblTheme);
+    textThemeLayout->addWidget(descTheme);
+    headerThemeRow->addWidget(badgeTheme, 0, Qt::AlignVCenter);
+    headerThemeRow->addLayout(textThemeLayout, 1);
 
-    m_themeAutoRadio = new QRadioButton(QStringLiteral("跟随系统"), cardTheme);
-    m_themeLightRadio = new QRadioButton(QStringLiteral("浅色模式"), cardTheme);
-    m_themeDarkRadio = new QRadioButton(QStringLiteral("深色模式"), cardTheme);
+    m_themeSeg = new MacSegmentedControl({
+        QStringLiteral("跟随系统 (自动)"),
+        QStringLiteral("浅色模式"),
+        QStringLiteral("深色模式")
+    }, cardTheme);
 
-    auto* themeGroup = new QButtonGroup(this);
-    themeGroup->addButton(m_themeAutoRadio);
-    themeGroup->addButton(m_themeLightRadio);
-    themeGroup->addButton(m_themeDarkRadio);
-
-    themeRadioLayout->addWidget(m_themeAutoRadio);
-    themeRadioLayout->addWidget(m_themeLightRadio);
-    themeRadioLayout->addWidget(m_themeDarkRadio);
-    themeRadioLayout->addStretch();
-
-    layoutTheme->addWidget(lblTheme);
-    layoutTheme->addLayout(themeRadioLayout);
+    layoutTheme->addLayout(headerThemeRow);
+    layoutTheme->addWidget(m_themeSeg);
     contentLayout->addWidget(cardTheme);
 
-    // 卡片 4：字体与排版说明
-    auto* cardFont = new QFrame(contentWidget);
-    cardFont->setObjectName("macCard");
-    auto* layoutFont = new QVBoxLayout(cardFont);
-    layoutFont->setContentsMargins(12, 10, 12, 10);
-    layoutFont->setSpacing(4);
+    // 卡片 4：高级配置管理
+    auto* cardConfig = new QFrame(contentWidget);
+    cardConfig->setObjectName("macCard");
+    auto* layoutConfig = new QHBoxLayout(cardConfig);
+    layoutConfig->setContentsMargins(12, 10, 14, 10);
+    layoutConfig->setSpacing(12);
 
-    auto* lblFont = new QLabel(QStringLiteral("排版与字体规范"), cardFont);
-    lblFont->setObjectName("label_section");
-    auto* lblFontDesc = new QLabel(QStringLiteral("全界面规范采用 Microsoft YaHei UI 配合 Bold 700 饱满排版；深浅色通透毛玻璃与 268px+ 宽屏自适应。"), cardFont);
-    lblFontDesc->setObjectName("label_dim");
-    lblFontDesc->setWordWrap(true);
-    layoutFont->addWidget(lblFont);
-    layoutFont->addWidget(lblFontDesc);
-    contentLayout->addWidget(cardFont);
+    auto* badgeConfig = new MacCategoryBadge(MacCategoryBadge::Gear, QColor(0x8E, 0x8E, 0x93), cardConfig);
+    auto* textConfigLayout = new QVBoxLayout();
+    textConfigLayout->setContentsMargins(0, 0, 0, 0);
+    textConfigLayout->setSpacing(2);
+
+    auto* lblConfig = new QLabel(QStringLiteral("高级自定义配置 (config.ini)"), cardConfig);
+    lblConfig->setObjectName("label_section");
+    auto* descConfig = new QLabel(QStringLiteral("深度定制标题字体族、字号、字重与滚轮交互参数"), cardConfig);
+    descConfig->setObjectName("label_dim");
+
+    textConfigLayout->addWidget(lblConfig);
+    textConfigLayout->addWidget(descConfig);
+
+    m_editConfigBtn = new QPushButton(QStringLiteral("打开配置..."), cardConfig);
+    m_editConfigBtn->setObjectName("btn_config");
+
+    layoutConfig->addWidget(badgeConfig, 0, Qt::AlignVCenter);
+    layoutConfig->addLayout(textConfigLayout, 1);
+    layoutConfig->addWidget(m_editConfigBtn, 0, Qt::AlignVCenter);
+    contentLayout->addWidget(cardConfig);
 
     contentLayout->addStretch();
 
     // 底部控制按钮行
     auto* bottomRow = new QHBoxLayout();
     bottomRow->setContentsMargins(0, 4, 0, 0);
-    bottomRow->setSpacing(8);
+    bottomRow->setSpacing(10);
 
-    m_editConfigBtn = new QPushButton(QStringLiteral("打开 config.ini"), contentWidget);
-    m_editConfigBtn->setObjectName("btn_config");
     m_checkUpdateBtn = new QPushButton(QStringLiteral("检查更新..."), contentWidget);
     m_checkUpdateBtn->setObjectName("btn_recheck");
     m_doneBtn = new QPushButton(QStringLiteral("完成"), contentWidget);
     m_doneBtn->setObjectName("btn_done");
 
-    bottomRow->addWidget(m_editConfigBtn);
     bottomRow->addWidget(m_checkUpdateBtn);
     bottomRow->addStretch();
     bottomRow->addWidget(m_doneBtn);
@@ -146,44 +229,23 @@ void SettingsDialog::setupUi() {
     contentLayout->addLayout(bottomRow);
     mainLayout->addWidget(contentWidget);
 
-    // 交互逻辑绑定（无 Win11 消息气泡打扰）
-    connect(m_startupCheck, &QCheckBox::toggled, this, [](bool checked) {
+    // 交互逻辑绑定
+    connect(m_startupSwitch, &MacToggleSwitch::toggled, this, [](bool checked) {
         if (Startup::isOn() != checked) {
             Startup::toggle();
         }
     });
 
-    connect(m_monitorMouseRadio, &QRadioButton::toggled, this, [](bool checked) {
-        if (checked) {
-            CFG.setDisplayMonitor(MouseMonitor);
-        }
-    });
-    connect(m_monitorPrimaryRadio, &QRadioButton::toggled, this, [](bool checked) {
-        if (checked) {
-            CFG.setDisplayMonitor(PrimaryMonitor);
-        }
+    connect(m_monitorSeg, &MacSegmentedControl::currentIndexChanged, this, [](int index) {
+        CFG.setDisplayMonitor(index == 0 ? MouseMonitor : PrimaryMonitor);
     });
 
-    connect(m_themeAutoRadio, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked) {
-            CFG.set("ThemeMode", "auto");
-            Theme::applyConfiguredScheme();
-            this->applyTheme();
-        }
-    });
-    connect(m_themeLightRadio, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked) {
-            CFG.set("ThemeMode", "light");
-            Theme::applyConfiguredScheme();
-            this->applyTheme();
-        }
-    });
-    connect(m_themeDarkRadio, &QRadioButton::toggled, this, [this](bool checked) {
-        if (checked) {
-            CFG.set("ThemeMode", "dark");
-            Theme::applyConfiguredScheme();
-            this->applyTheme();
-        }
+    connect(m_themeSeg, &MacSegmentedControl::currentIndexChanged, this, [this](int index) {
+        const QString mode = (index == 0) ? QStringLiteral("auto")
+                           : ((index == 1) ? QStringLiteral("light") : QStringLiteral("dark"));
+        CFG.set("ThemeMode", mode);
+        Theme::applyConfiguredScheme();
+        this->applyTheme();
     });
 
     connect(m_editConfigBtn, &QPushButton::clicked, this, [] {
@@ -200,6 +262,7 @@ void SettingsDialog::setupUi() {
 
 void SettingsDialog::applyTheme() {
     setStyleSheet(Theme::macDialogStyleSheet());
+    update();
 }
 
 void SettingsDialog::paintEvent(QPaintEvent* event) {
@@ -219,21 +282,16 @@ void SettingsDialog::showEvent(QShowEvent* event) {
 
     // 刷新控件当前值（使用 QSignalBlocker 避免在展示时触发写配置与级联重绘）
     {
-        const QSignalBlocker b1(m_startupCheck);
-        const QSignalBlocker b2(m_monitorMouseRadio);
-        const QSignalBlocker b3(m_monitorPrimaryRadio);
-        const QSignalBlocker b4(m_themeAutoRadio);
-        const QSignalBlocker b5(m_themeLightRadio);
-        const QSignalBlocker b6(m_themeDarkRadio);
+        const QSignalBlocker b1(m_startupSwitch);
+        const QSignalBlocker b2(m_monitorSeg);
+        const QSignalBlocker b3(m_themeSeg);
 
-        m_startupCheck->setChecked(Startup::isOn());
-        m_monitorMouseRadio->setChecked(CFG.getDisplayMonitor() == MouseMonitor);
-        m_monitorPrimaryRadio->setChecked(CFG.getDisplayMonitor() == PrimaryMonitor);
+        m_startupSwitch->setChecked(Startup::isOn(), false);
+        m_monitorSeg->setCurrentIndex(CFG.getDisplayMonitor() == MouseMonitor ? 0 : 1, false);
 
         const auto theme = CFG.getThemeMode();
-        m_themeAutoRadio->setChecked(theme == ThemeAuto);
-        m_themeLightRadio->setChecked(theme == ThemeLight);
-        m_themeDarkRadio->setChecked(theme == ThemeDark);
+        const int themeIdx = (theme == ThemeAuto) ? 0 : ((theme == ThemeLight) ? 1 : 2);
+        m_themeSeg->setCurrentIndex(themeIdx, false);
     }
 
     // 自动定位至屏幕工作区右下角

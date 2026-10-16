@@ -1,5 +1,6 @@
 #include "utils/MacToast.h"
 #include "utils/Theme.h"
+#include "utils/ConfigManager.h"
 #include "utils/setWindowBlur.h"
 #include "utils/Util.h"
 #include <QHBoxLayout>
@@ -34,8 +35,10 @@ protected:
         p.setRenderHint(QPainter::Antialiasing);
         p.setRenderHint(QPainter::SmoothPixmapTransform);
 
-        // 绘制 32x32 应用主图标（位于左上方）
-        const QPixmap icon = QIcon(":/img/icon.ico").pixmap(32, 32);
+        // 绘制 32x32 应用主图标（支持 4K/8K 高 DPI Retina 锐利绘制）
+        const qreal dpr = devicePixelRatioF();
+        QPixmap icon = QIcon(":/img/icon.ico").pixmap(QSize(qRound(32 * dpr), qRound(32 * dpr)));
+        icon.setDevicePixelRatio(dpr);
         p.drawPixmap(0, 0, icon);
 
         // 绘制右下角 14x14 矢量状态微标
@@ -216,7 +219,9 @@ void MacToast::showToast(
     auto* toast = new MacToast(title, message, type, durationMs, std::move(onClick));
     s_activeToast = toast;
 
-    QScreen* screen = QGuiApplication::screenAt(QCursor::pos());
+    QScreen* screen = (CFG.getDisplayMonitor() == PrimaryMonitor)
+        ? QGuiApplication::primaryScreen()
+        : QGuiApplication::screenAt(QCursor::pos());
     if (!screen) {
         screen = QGuiApplication::primaryScreen();
     }
