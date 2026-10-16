@@ -241,8 +241,8 @@ private:
 
         // macOS 风格顶部品牌状态卡片（Header Card，对标 Tcursor 2.5.2）
         const QString verStr = [] {
-            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.26");
-            if (v.isEmpty()) v = QStringLiteral("1.26");
+            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.27");
+            if (v.isEmpty()) v = QStringLiteral("1.27");
             if (v.count('.') > 1 && v.endsWith(".0")) v.chop(2);
             return QString("v%1").arg(v);
         }();
