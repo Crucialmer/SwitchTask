@@ -122,6 +122,8 @@ DisplayMonitor = 1
 ## 🛡️ 校验与完整性信息 (Integrity)
 
 - **文件名称**：`SwitchTask.zip`
+- **文件大小**：38.3 MB (38,307,036 字节)
+- **SHA-256 校验和**：`4bc6a096599b891b398984c524a565bcb0c175b7060ed53d3b18b43f985c14e0`
 - **构建环境**：Windows Server (windows-latest) · MSVC 2022 (x64) · Qt 6.8 (win64_msvc2022_64) · CMake 3.21+ (C++20)
 
 ---
