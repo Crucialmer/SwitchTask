@@ -4,6 +4,23 @@
 
 ---
 
+## [v1.25] - 2026-10-16
+
+### 🛠️ SwitchTask v1.25 — 修复设置窗口二次打开只显示毛玻璃无内容缺陷 & 架构重构
+
+- **彻底修复设置窗口二次呼出只显示毛玻璃背景、内容消失的缺陷**：
+  - **消除静态隐藏实例复用导致的渲染失效**：引入 `setAttribute(Qt::WA_DeleteOnClose)` 与 `QPointer<SettingsDialog>` 智能生命周期管理，关闭时彻底释放资源，二次打开时全新创建渲染，杜绝 translucent 窗口在隐藏/重显时 QBackingStore 与 DWM 亚克力区域脱节的问题；已打开状态下再次点击则智能提升置顶（`raise()` / `activateWindow()`）；
+  - **对标 UpdateDialog 重构窗体自绘架构**：
+    - 消除冗余嵌套的中间层 `QFrame* m_windowFrame`，窗口本体直接承载 `macWindowFrame` 命名与 `WA_StyledBackground`；
+    - 新增 `paintEvent` 中 `drawPrimitive(QStyle::PE_Widget, ...)` 显式自绘，彻底保证毛玻璃与深浅色圆角衬底在任何生命周期下均可靠绘制；
+    - 在 `showEvent` 准确调用基类 `QDialog::showEvent(event)`，保证布局引擎（QLayout）在展示时正确激活；
+  - **控件状态刷新信号屏蔽（QSignalBlocker）**：
+    - 在 `showEvent` 动态同步配置项（开机自启、显示器偏好、外观主题）时全量应用 `QSignalBlocker`，彻底阻断在展示过程中触发二次写配置文件与级联重绘；
+- **托盘菜单安全关闭机制优化**：
+  - 重构 `MenuHeaderWidget::handleClick()`，向上遍历并准确检索所属 `QMenu` 实例执行关闭，避免原先误调内部容器窗口 `close()` 导致菜单部件状态异常。
+
+---
+
 ## [v1.24] - 2026-10-16
 
 ### 🎉 SwitchTask v1.24 — 新增 macOS 26 原生自绘悬浮气泡通知（MacToast）与零 Windows 弹窗沉浸体验

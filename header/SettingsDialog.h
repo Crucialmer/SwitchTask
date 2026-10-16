@@ -24,11 +24,11 @@ public:
 
 protected:
     void showEvent(QShowEvent* event) override;
+    void paintEvent(QPaintEvent* event) override;
 
 private:
     void setupUi();
 
-    QFrame* m_windowFrame = nullptr;
     MacTitleBar* m_titleBar = nullptr;
     QCheckBox* m_startupCheck = nullptr;
     QRadioButton* m_monitorMouseRadio = nullptr;

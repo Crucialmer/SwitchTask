@@ -14,6 +14,7 @@
 #include <QFrame>
 #include <QPainter>
 #include <QMouseEvent>
+#include <QPointer>
 #include "Startup.h"
 #include "ConfigManager.h"
 #include "UpdateChecker.h"
@@ -224,8 +225,8 @@ private:
 
         // macOS 风格顶部品牌状态卡片（Header Card，对标 Tcursor 2.5.2）
         const QString verStr = [] {
-            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.24");
-            if (v.isEmpty()) v = QStringLiteral("1.24");
+            auto v = qApp ? qApp->applicationVersion() : QStringLiteral("1.25");
+            if (v.isEmpty()) v = QStringLiteral("1.25");
             if (v.count('.') > 1 && v.endsWith(".0")) v.chop(2);
             return QString("v%1").arg(v);
         }();
@@ -346,10 +347,13 @@ private:
 public:
     /// 打开 macOS 26 风格设置窗口
     static void showSettingsDialog() {
-        static auto* dlg = new SettingsDialog;
-        dlg->show();
-        dlg->raise();
-        dlg->activateWindow();
+        static QPointer<SettingsDialog> s_settingsDialog;
+        if (!s_settingsDialog) {
+            s_settingsDialog = new SettingsDialog;
+        }
+        s_settingsDialog->show();
+        s_settingsDialog->raise();
+        s_settingsDialog->activateWindow();
     }
 
     /// 打开更新对话框（托盘菜单与“更新可用”通知点击共用同一入口）
@@ -371,12 +375,15 @@ private:
 };
 
 inline void MenuHeaderWidget::handleClick() {
-    SystemTray::showSettingsDialog();
-    if (auto* m = qobject_cast<QMenu*>(parentWidget())) {
-        m->close();
-    } else if (parentWidget()) {
-        parentWidget()->close();
+    QWidget* topMenu = this;
+    while (topMenu && topMenu->parentWidget()) {
+        topMenu = topMenu->parentWidget();
+        if (auto* m = qobject_cast<QMenu*>(topMenu)) {
+            m->close();
+            break;
+        }
     }
+    SystemTray::showSettingsDialog();
 }
 
 #endif //WIN_SWITCHER_SYSTEMTRAY_H

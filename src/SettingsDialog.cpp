@@ -7,10 +7,16 @@
 #include "utils/Util.h"
 #include "utils/SystemTray.h"
 #include <QButtonGroup>
+#include <QStyleOption>
+#include <QPainter>
+#include <QSignalBlocker>
 
 SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint | Qt::WindowStaysOnTopHint);
     setAttribute(Qt::WA_TranslucentBackground);
+    setAttribute(Qt::WA_StyledBackground, true);
+    setAttribute(Qt::WA_DeleteOnClose);
+    setObjectName("macWindowFrame");
     setFixedSize(460, 480);
     setWindowTitle("SwitchTask 设置");
 
@@ -27,17 +33,10 @@ void SettingsDialog::setupUi() {
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
 
-    m_windowFrame = new QFrame(this);
-    m_windowFrame->setObjectName("macWindowFrame");
-
-    auto* frameLayout = new QVBoxLayout(m_windowFrame);
-    frameLayout->setContentsMargins(0, 0, 0, 0);
-    frameLayout->setSpacing(0);
-
     m_titleBar = new MacTitleBar(QStringLiteral("SwitchTask 设置"), this);
-    frameLayout->addWidget(m_titleBar);
+    mainLayout->addWidget(m_titleBar);
 
-    auto* contentWidget = new QWidget(m_windowFrame);
+    auto* contentWidget = new QWidget(this);
     auto* contentLayout = new QVBoxLayout(contentWidget);
     contentLayout->setContentsMargins(18, 14, 18, 14);
     contentLayout->setSpacing(10);
@@ -145,8 +144,7 @@ void SettingsDialog::setupUi() {
     bottomRow->addWidget(m_doneBtn);
 
     contentLayout->addLayout(bottomRow);
-    frameLayout->addWidget(contentWidget);
-    mainLayout->addWidget(m_windowFrame);
+    mainLayout->addWidget(contentWidget);
 
     // 交互逻辑绑定（无 Win11 消息气泡打扰）
     connect(m_startupCheck, &QCheckBox::toggled, this, [](bool checked) {
@@ -204,21 +202,39 @@ void SettingsDialog::applyTheme() {
     setStyleSheet(Theme::macDialogStyleSheet());
 }
 
-void SettingsDialog::showEvent(QShowEvent*) {
+void SettingsDialog::paintEvent(QPaintEvent* event) {
+    Q_UNUSED(event);
+    QStyleOption opt;
+    opt.initFrom(this);
+    QPainter p(this);
+    style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
+}
+
+void SettingsDialog::showEvent(QShowEvent* event) {
+    QDialog::showEvent(event);
     setWindowBlur(reinterpret_cast<HWND>(winId()));
     Util::setWindowRoundCorner(reinterpret_cast<HWND>(winId()));
 
     applyTheme();
 
-    // 刷新控件当前值
-    m_startupCheck->setChecked(Startup::isOn());
-    m_monitorMouseRadio->setChecked(CFG.getDisplayMonitor() == MouseMonitor);
-    m_monitorPrimaryRadio->setChecked(CFG.getDisplayMonitor() == PrimaryMonitor);
+    // 刷新控件当前值（使用 QSignalBlocker 避免在展示时触发写配置与级联重绘）
+    {
+        const QSignalBlocker b1(m_startupCheck);
+        const QSignalBlocker b2(m_monitorMouseRadio);
+        const QSignalBlocker b3(m_monitorPrimaryRadio);
+        const QSignalBlocker b4(m_themeAutoRadio);
+        const QSignalBlocker b5(m_themeLightRadio);
+        const QSignalBlocker b6(m_themeDarkRadio);
 
-    const auto theme = CFG.getThemeMode();
-    m_themeAutoRadio->setChecked(theme == ThemeAuto);
-    m_themeLightRadio->setChecked(theme == ThemeLight);
-    m_themeDarkRadio->setChecked(theme == ThemeDark);
+        m_startupCheck->setChecked(Startup::isOn());
+        m_monitorMouseRadio->setChecked(CFG.getDisplayMonitor() == MouseMonitor);
+        m_monitorPrimaryRadio->setChecked(CFG.getDisplayMonitor() == PrimaryMonitor);
+
+        const auto theme = CFG.getThemeMode();
+        m_themeAutoRadio->setChecked(theme == ThemeAuto);
+        m_themeLightRadio->setChecked(theme == ThemeLight);
+        m_themeDarkRadio->setChecked(theme == ThemeDark);
+    }
 
     // 自动定位至屏幕工作区右下角
     MacTitleBar::positionBottomRight(this, 24);
