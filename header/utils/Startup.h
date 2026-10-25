@@ -8,12 +8,10 @@
 #include <QDebug>
 #include <QDateTime>
 #include <QMessageBox>
+#include <QProcess>
 #include <shlobj_core.h>
 
 // 纯绿色/非管理员模式：始终使用当前用户注册表 Run 键，不依赖计划任务或管理员权限
-#if __has_include("ScheduledTask.h")
-# include "ScheduledTask.h"
-#endif
 
 class Startup {
 public:
@@ -36,12 +34,8 @@ public:
     static void off() {
         off_reg();
         clearStartupDisabled();
-#if __has_include("ScheduledTask.h")
-        // 若系统曾残留管理员模式的计划任务，顺便尝试静默清理（不弹窗、不强求提权）
-        if (ScheduledTask::queryTask(SCHTASK_NAME)) {
-            ScheduledTask::deleteTask(SCHTASK_NAME);
-        }
-#endif
+        // 若系统曾残留管理员模式的计划任务，顺便尝试静默清理（零临时文件、不调用 PowerShell）
+        QProcess::execute("schtasks", {"/delete", "/tn", SCHTASK_NAME, "/f"});
     }
 
     static void toggle() {
@@ -116,9 +110,7 @@ private:
     // StartupApproved\Run：任务管理器/设置 的禁用覆盖标记所在键（值名 = REG_APP_NAME）
     inline static constexpr auto STARTUP_APPROVED_RUN =
             L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run";
-#if __has_include("ScheduledTask.h")
     inline static const auto SCHTASK_NAME = "SwitchTask Startup";
-#endif
 };
 
 #endif //WIN_SWITCHER_STARTUP_H

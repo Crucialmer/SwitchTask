@@ -190,6 +190,7 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
                 qApp->quit();
             } else {
                 qWarning() << "Extract failed" << filePath;
+                QFile::remove(filePath); // 解压失败时清理损坏包，避免目录内残留
                 ui->textBrowser->setMarkdown(QStringLiteral("### 解压失败❎\n\n更新包解压过程异常，文件可能损坏。"));
                 ui->btn_update->setEnabled(true);
                 ui->btn_recheck->setEnabled(true);
@@ -208,6 +209,15 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
 }
 
 UpdateDialog::~UpdateDialog() {
+    if (downloadStatus.reply) {
+        downloadStatus.reply->abort();
+    }
+    if (downloadStatus.file.isOpen()) {
+        downloadStatus.file.close();
+    }
+    if (!downloadStatus.file.fileName().isEmpty()) {
+        QFile::remove(downloadStatus.file.fileName());
+    }
     delete ui;
     qDebug() << "UpdateDialog destroyed";
 }

@@ -3,8 +3,6 @@
 
 #include <QSettings>
 #include <QApplication>
-#include <QTemporaryFile>
-#include <QStandardPaths>
 #include <QDir>
 #include "ConfigManagerBase.h"
 

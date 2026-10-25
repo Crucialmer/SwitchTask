@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SwitchTask VERSION 2.1.0) # SwitchTask v2.1 版本
+project(SwitchTask VERSION 2.2.0) # SwitchTask v2.2 版本
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -81,9 +81,7 @@ add_executable(${PROJECT_NAME} src/main.cpp
         src/SettingsDialog.cpp
         src/UpdateDialog.cpp
         header/UpdateDialog.h
-        ui/UpdateDialog.ui
-        src/utils/ScheduledTask.cpp
-        header/utils/ScheduledTask.h)
+        ui/UpdateDialog.ui)
 target_link_libraries(${PROJECT_NAME}
         Qt::Core
         Qt::Gui
