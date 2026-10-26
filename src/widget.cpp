@@ -922,7 +922,8 @@ void Widget::rotateTaskbarWindowInGroup(const QString& exePath, bool forward, in
             static QTimer* timer = [this]() {
                 auto* t = new QTimer;
                 t->setSingleShot(true);
-                t->setInterval(200);
+                // 缩短至 35ms（原 200ms），即时释放左键按压，杜绝光标移动时触发系统全局文件/窗口拖拽
+                t->setInterval(35);
                 // TODO cursor移动后立即释放 防止拖拽
                 t->callOnTimeout(this, [this]() {
                     mouseEvent(MOUSEEVENTF_LEFTUP);

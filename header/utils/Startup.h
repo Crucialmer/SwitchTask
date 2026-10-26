@@ -35,7 +35,8 @@ public:
         off_reg();
         clearStartupDisabled();
         // 若系统曾残留管理员模式的计划任务，顺便尝试静默清理（零临时文件、不调用 PowerShell）
-        QProcess::execute("schtasks", {"/delete", "/tn", SCHTASK_NAME, "/f"});
+        const QString sysRoot = QProcessEnvironment::systemEnvironment().value("SystemRoot", "C:\\Windows");
+        QProcess::execute(sysRoot + "\\System32\\schtasks.exe", {"/delete", "/tn", SCHTASK_NAME, "/f"});
     }
 
     static void toggle() {

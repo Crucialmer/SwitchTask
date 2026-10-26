@@ -11,6 +11,8 @@
 #include <QJsonArray>
 #include <QDesktopServices>
 #include <QCryptographicHash>
+#include <QRegularExpression>
+#include <QProcess>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -180,7 +182,7 @@ UpdateDialog::UpdateDialog(QWidget* parent) : QDialog(parent), ui(new Ui::Update
                 }
                 qDebug() << "release extract dir:" << relDir.absolutePath();
                 const auto batPath = writeBat(relDir.absolutePath(), qApp->applicationDirPath());
-                if (batPath.isEmpty() || !QDesktopServices::openUrl(QUrl::fromLocalFile(batPath))) {
+                if (batPath.isEmpty() || !QProcess::startDetached("cmd.exe", {"/c", QDir::toNativeSeparators(batPath)})) {
                     qWarning() << "#Failed to start updater bat:" << batPath;
                     ui->textBrowser->setMarkdown(QStringLiteral("### 启动更新失败❎\n\n未能启动批处理更新程序，请稍后重试或前往 GitHub 手动下载。"));
                     ui->btn_update->setEnabled(true);
@@ -313,6 +315,16 @@ void UpdateDialog::fetchGithubReleaseInfo() {
             }
         }
 
+        // 若 API 未能直接提供资产 digest，尝试从 Release 说明中解析 sha256 校验和作为安全兜底
+        if (relInfo.digest.isEmpty() && !relInfo.description.isEmpty()) {
+            static const QRegularExpression re(QStringLiteral(R"((?:sha256|SHA-256|SHA256)[:\s=]+([0-9a-fA-F]{64}))"));
+            const auto match = re.match(relInfo.description);
+            if (match.hasMatch()) {
+                relInfo.digest = QStringLiteral("sha256:") + match.captured(1).toLower();
+                qDebug() << "#Extracted sha256 from release body:" << relInfo.digest;
+            }
+        }
+
         qDebug() << "Update info fetched" << relInfo.ver << relInfo.downloadUrl;
 
         bool needUpdate = relInfo.ver.normalized() > version.normalized();
@@ -436,8 +448,11 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
                     return;
                 }
                 qDebug() << "#Hash verified" << actual;
-            } else if (!downloadStatus.digest.isEmpty()) {
-                qWarning() << "#Unknown digest format, skipped:" << downloadStatus.digest;
+            } else {
+                qWarning() << "#Security failure: release digest missing, refusing unverified update package";
+                ui->textBrowser->setMarkdown(QStringLiteral("### 安全校验拦截❎\n\n未能在 Release 资产或说明中验证 SHA-256 安全摘要，已终止自动更新。请前往 GitHub 官方页面手动下载。"));
+                QFile::remove(downloadStatus.file.fileName());
+                return;
             }
             ui->textBrowser->setMarkdown(QStringLiteral("### 下载成功✅\n\n正在解压更新包并启动自动替换批处理..."));
             emit downloadSucceed(downloadStatus.file.fileName());
@@ -454,24 +469,40 @@ QString UpdateDialog::writeBat(const QString& sourceDir, const QString& targetDi
     if (relTarget.isEmpty())
         relTarget = "."; // targetDir==程序目录时相对路径为空，用 "."（即 "%~dp0."）
     QString bat;
-    bat += "@timeout /t 1 /NOBREAK\r\n";
-    bat += "@cd /d \"%~dp0\"\r\n"; //切换到bat目录，否则为qt的exe目录
+    const auto exeName = QFileInfo(qApp->applicationFilePath()).fileName();
+    bat += "@echo off\r\n";
+    bat += "@cd /d \"%~dp0\"\r\n";
+    bat += "@echo ## Waiting for SwitchTask to exit...\r\n";
+    bat += ":waitExit\r\n";
+    bat += QString("tasklist /fi \"imagename eq %1\" 2>nul | findstr /i \"%1\" >nul\r\n").arg(exeName);
+    bat += "@if not errorlevel 1 (\r\n";
+    bat += "    @timeout /t 1 /nobreak >nul\r\n";
+    bat += "    @goto :waitExit\r\n";
+    bat += ")\r\n";
+
     bat += "@echo ##Copying files, please wait......\r\n";
-    bat += QString("xcopy \"%~dp0%1\" \"%~dp0%2\" /E /H /Y\r\n").arg(relSource, relTarget);
+    bat += QString("xcopy \"%~dp0%1\" \"%~dp0%2\" /E /H /Y /R >nul\r\n").arg(relSource, relTarget);
+    bat += "@if errorlevel 1 (\r\n";
+    bat += "    @echo ## Retrying copy after delay...\r\n";
+    bat += "    @timeout /t 1 /nobreak >nul\r\n";
+    bat += QString("    xcopy \"%~dp0%1\" \"%~dp0%2\" /E /H /Y /R >nul\r\n").arg(relSource, relTarget);
+    bat += "    @if errorlevel 1 goto :copyFailed\r\n";
+    bat += ")\r\n";
     // xcopy 失败（返回码 >=1）时中止：不删除更新素材（zip/_extract 保留供重试）、不重启应用
-    bat += "@if errorlevel 1 goto :copyFailed\r\n";
+
     bat += "@echo -------------------------------------------------------\r\n";
     bat += "@echo ##Update SUCCESSFUL(Maybe)\r\n";
     bat += "@echo -------------------------------------------------------\r\n";
     // bat += "@pause\r\n";
-    bat += QString("@del \"%~dp0%1\"\r\n").arg(archive.fileName);
-    bat += QString("@rd /S /Q \"%~dp0%1\"\r\n").arg(archive.extractDir);
+    bat += QString("if exist \"%~dp0%1\" del /f /q \"%~dp0%1\"\r\n").arg(archive.fileName);
+    bat += QString("if exist \"%~dp0%1\" rd /s /q \"%~dp0%1\"\r\n").arg(archive.extractDir);
     bat += QString("@start \"\" \"%~dp0%1\" --verify-update \"%2->%3\"\r\n").arg(QFileInfo(qApp->applicationFilePath()).fileName(),
                                                                                  version.toString(), downloadStatus.targetVer.toString());
     bat += "@del \"%~f0\" & exit /b 0\r\n"; // 自删与退出合并为一行：文件删除后不再需要读取后续行
     bat += ":copyFailed\r\n";
     bat += "@echo ##Copy FAILED - update aborted. Update files kept for retry.\r\n";
-    bat += "@timeout /t 5 /NOBREAK\r\n";
+    bat += "@timeout /t 5 /nobreak\r\n";
+    bat += "@del \"%~f0\" & exit /b 1\r\n";
     QFile file(appDir + "/copy.bat");
     if (!file.open(QFile::WriteOnly)) {
         qWarning() << "Failed to open bat for writing:" << file.fileName();

@@ -75,6 +75,8 @@ jobs:
           # 不带版本号/架构等附加信息（解压后文件夹即为 SwitchTask）
           $zipName = "SwitchTask.zip"
           Compress-Archive -Path "$dir\*" -DestinationPath $zipName
+          $hash = (Get-FileHash -Path $zipName -Algorithm SHA256).Hash.ToLower()
+          "$hash  $zipName" | Out-File -FilePath "$zipName.sha256" -Encoding ascii
           echo "name=$zipName" >> $env:GITHUB_OUTPUT
           echo "Packaged: $zipName ($((Get-Item $zipName).Length / 1MB) MB)"
 
@@ -82,7 +84,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.pkg.outputs.name }}
-          path: ${{ steps.pkg.outputs.name }}
+          path: |
+            ${{ steps.pkg.outputs.name }}
+            ${{ steps.pkg.outputs.name }}.sha256
 
       - name: Create GitHub Release (tag push only)
         if: startsWith(github.ref, 'refs/tags/v')
@@ -90,4 +94,6 @@ jobs:
         with:
           name: SwitchTask ${{ github.ref_name }}
           generate_release_notes: true
-          files: ${{ steps.pkg.outputs.name }}
+          files: |
+            ${{ steps.pkg.outputs.name }}
+            ${{ steps.pkg.outputs.name }}.sha256

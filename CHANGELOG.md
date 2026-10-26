@@ -4,6 +4,34 @@
 
 ---
 
+## [v2.3] - 2026-10-26
+
+### 🛡️ SwitchTask v2.3 — 全链路安全加固与鲁棒性防御升级 (Security & Hardening Release)
+
+**SwitchTask** 正式发布 **v2.3** 安全加固里程碑更新！全面修复与防御潜在的安全与可靠性隐患，严格闭环自动更新校验链，免疫 DLL 与二进制劫持，消除批处理退出竞态与手势误操作风险，带来更坚固、更安心的纯绿色便携体验。
+
+#### 🌟 v2.3 核心加固与优化特性
+1. **自动更新完整性严格闭环（Fail-Closed SHA-256 强制校验）**：
+   - 彻底修复当更新资产未提供哈希或格式异常时静默放行的 Fail-Open 缺陷，实行严格的 Fail-Closed 强制中断与安全拦截策略；
+   - 补充多层校验和兜底识别机制（支持 GitHub Asset 原生元数据摘要及 Release 说明正文中的 SHA-256 提取）；
+   - CI/CD 自动构建工作流全面升级，每次发布自动同步生成并上传标准的 `SwitchTask.zip.sha256` 校验和文件，双重保障产物完整性与防篡改。
+2. **免疫 DLL 劫持与无绝对路径可执行文件搜索劫持（Binary Planting Defense）**：
+   - 在程序入口处显式启用 `SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_APPLICATION_DIR)` 与 `SetDllDirectory(L"")`，彻底移除非安全的当前工作目录搜索顺序，全面免疫外部恶意 DLL 注入；
+   - 将配置文本编辑器（`notepad.exe`）与计划任务清理（`schtasks.exe`）调用全面升格为绝对系统路径定位，杜绝同目录伪装可执行文件被恶意利用。
+3. **更新替换批处理（`copy.bat`）鲁棒性重构与进程竞态免疫**：
+   - 根除旧版仅固定等待 1 秒导致的主程序文件锁定访问拒绝错误，引入原生进程退出状态探测与自动重试拷贝机制；
+   - 改由 `QProcess::startDetached` 直接拉起 `cmd.exe /c` 执行更新脚本，规避 ShellExecute 在安全受限环境下的脚本关联失效；
+   - 强化批处理中临时文件与解压目录的条件删除保护（`if exist ...`），确保升级过渡万无一失。
+4. **任务栏滚轮手势优化（消除全局鼠标拖拽误触风险）**：
+   - 缩减触发缩略图刷新防闪烁的物理模拟按键保持时间（由 200ms 压缩至 35ms 即时释放），彻底消除用户在滚动后快速移动光标误触发系统全局文件/窗口拖拽（Drag-and-Drop）的安全隐患。
+5. **原子内核互斥体单实例保护（Named Mutex）**：
+   - 升级 `SingleApp` 单实例实现，采用 Windows 原生内核命名互斥体（`CreateMutexW`）取代原共享内存机制，从根源上消除 TOCTOU 竞态并实现进程崩溃时由内核自动回收无残留。
+6. **CMake 编译器与链接器安全选项全面加固**：
+   - MSVC 编译期全面注入 `/GS`（栈缓冲区安全检查）与 `/guard:cf`（控制流完整性保护 Control Flow Guard）；
+   - 链接期显式注入 `/DYNAMICBASE`（高熵 ASLR 地址空间随机化）、`/HIGHENTROPYVA`、`/NXCOMPAT`（数据执行保护 DEP）及控制流检查，全面对齐现代原生软件工业级安全基线。
+
+---
+
 ## [v2.2] - 2026-10-25
 
 ### 🚀 SwitchTask v2.2 — 纯绿色便携化收敛与零目录外文件残留保障

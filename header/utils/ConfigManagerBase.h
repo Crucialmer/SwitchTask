@@ -1,8 +1,10 @@
-﻿#ifndef WIN_SWITCHER_CONFIGMANAGERBASE_H
+#ifndef WIN_SWITCHER_CONFIGMANAGERBASE_H
 #define WIN_SWITCHER_CONFIGMANAGERBASE_H
 
 #include <QSettings>
 #include <QProcess>
+#include <QStandardPaths>
+#include <QProcessEnvironment>
 
 class ConfigManagerBase : public QObject {
     Q_OBJECT
@@ -49,7 +51,11 @@ public:
 
         qDebug() << "#Editing config file" << settings.fileName();
         // QProcess 只能同时连接一个进程
-        proc_editor.start("notepad", {settings.fileName()});
+        // 显式定位系统绝对路径，彻底防御当前程序目录下的伪装 notepad.exe/notepad.bat 劫持
+        const QString sysRoot = QProcessEnvironment::systemEnvironment().value("SystemRoot", "C:\\Windows");
+        const QString notepadPath = QStandardPaths::findExecutable("notepad.exe", {sysRoot + "\\System32", "C:\\Windows\\System32"});
+        const QString exeToRun = notepadPath.isEmpty() ? (sysRoot + "\\System32\\notepad.exe") : notepadPath;
+        proc_editor.start(exeToRun, {settings.fileName()});
     }
 
 protected:

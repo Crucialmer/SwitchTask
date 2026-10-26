@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SwitchTask VERSION 2.2.0) # SwitchTask v2.2 版本
+project(SwitchTask VERSION 2.3.0) # SwitchTask v2.3 版本
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -117,9 +117,15 @@ if (MSVC)
             /utf-8
             /W4            # 开启高等级警告
             /permissive-   # 标准一致性
+            /GS            # 栈缓冲区安全检查 (Buffer Security Check)
+            /guard:cf      # 控制流完整性保护 (Control Flow Guard)
     )
     # 强制以标准用户权限（asInvoker）运行，关闭并禁止管理员提权与 UAC 弹窗
     target_link_options(${PROJECT_NAME} PRIVATE
             "/MANIFESTUAC:level='asInvoker' uiAccess='false'"
+            "/DYNAMICBASE"   # ASLR 地址空间随机化
+            "/HIGHENTROPYVA" # 64 位高熵虚拟内存
+            "/NXCOMPAT"      # 数据执行保护 (DEP)
+            "/guard:cf"      # 链接期控制流安全检查
     )
 endif ()

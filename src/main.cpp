@@ -18,6 +18,9 @@
 
 int main(int argc, char* argv[]) {
 #ifdef Q_OS_WIN
+    // 免疫 DLL 劫持：移除非安全搜索路径，严格限定从 System32 与应用自身目录加载 DLL
+    SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32 | LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
+    SetDllDirectory(L"");
     // 启用 Windows Per-Monitor V2 高 DPI 感知，支持 4K / 8K 显示器任意比例缩放（100% ~ 400%+）
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 #endif
