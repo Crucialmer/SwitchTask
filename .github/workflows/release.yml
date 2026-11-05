@@ -71,46 +71,19 @@ jobs:
         shell: pwsh
         run: |
           $dir = "${{ steps.exe.outputs.path }}"
-
-          # 1. 方案 1：macOS 26 悬浮胶囊卡片预览版（预置 config.ini: thumbnail/mode=popup）
-          $dirPopup = "$dir-popup"
-          Copy-Item -Path $dir -Destination $dirPopup -Recurse
-          "[thumbnail]`r`nmode = popup" | Out-File -FilePath "$dirPopup\config.ini" -Encoding utf8
-          $zipPopup = "SwitchTask-PopupPreview.zip"
-          Compress-Archive -Path "$dirPopup\*" -DestinationPath $zipPopup
-          $hashPopup = (Get-FileHash -Path $zipPopup -Algorithm SHA256).Hash.ToLower()
-          "$hashPopup  $zipPopup" | Out-File -FilePath "$zipPopup.sha256" -Encoding ascii
-
-          # 2. 方案 2：macOS 26 舞台集成面板预览版（预置 config.ini: thumbnail/mode=integrated）
-          $dirIntegrated = "$dir-integrated"
-          Copy-Item -Path $dir -Destination $dirIntegrated -Recurse
-          "[thumbnail]`r`nmode = integrated" | Out-File -FilePath "$dirIntegrated\config.ini" -Encoding utf8
-          $zipIntegrated = "SwitchTask-IntegratedPreview.zip"
-          Compress-Archive -Path "$dirIntegrated\*" -DestinationPath $zipIntegrated
-          $hashIntegrated = (Get-FileHash -Path $zipIntegrated -Algorithm SHA256).Hash.ToLower()
-          "$hashIntegrated  $zipIntegrated" | Out-File -FilePath "$zipIntegrated.sha256" -Encoding ascii
-
-          # 3. 标准全能包（SwitchTask.zip，发布标准资产名）
           $zipName = "SwitchTask.zip"
           Compress-Archive -Path "$dir\*" -DestinationPath $zipName
           $hash = (Get-FileHash -Path $zipName -Algorithm SHA256).Hash.ToLower()
           "$hash  $zipName" | Out-File -FilePath "$zipName.sha256" -Encoding ascii
 
           echo "name=$zipName" >> $env:GITHUB_OUTPUT
-          Write-Host "Packaged:"
-          Write-Host "  - $zipPopup"
-          Write-Host "  - $zipIntegrated"
-          Write-Host "  - $zipName"
+          Write-Host "Packaged $zipName (SHA256: $hash)"
 
       - name: Upload artifact (always, incl. manual runs)
         uses: actions/upload-artifact@v4
         with:
-          name: SwitchTask-Packages
+          name: SwitchTask
           path: |
-            SwitchTask-PopupPreview.zip
-            SwitchTask-PopupPreview.zip.sha256
-            SwitchTask-IntegratedPreview.zip
-            SwitchTask-IntegratedPreview.zip.sha256
             SwitchTask.zip
             SwitchTask.zip.sha256
 
@@ -121,9 +94,5 @@ jobs:
           name: SwitchTask ${{ github.ref_name }}
           generate_release_notes: true
           files: |
-            SwitchTask-PopupPreview.zip
-            SwitchTask-PopupPreview.zip.sha256
-            SwitchTask-IntegratedPreview.zip
-            SwitchTask-IntegratedPreview.zip.sha256
             SwitchTask.zip
             SwitchTask.zip.sha256
