@@ -34,7 +34,6 @@ QT_END_NAMESPACE
 class IconOnlyDelegate;
 class QVariantAnimation;
 class ThumbnailPopupWidget;
-class ThumbnailHostWidget;
 
 class Widget : public QWidget {
     Q_OBJECT
@@ -123,7 +122,10 @@ private:
 
     // --- 实时窗口缩略图组件 ---
     ThumbnailPopupWidget* popupWidget = nullptr; // 方案 1：macOS 26 悬浮微型卡片
-    ThumbnailHostWidget* stageWidget = nullptr;  // 方案 2：macOS 26 舞台集成卡片
+    HTHUMBNAIL stageThumbnail = nullptr;         // 方案 2：macOS 26 舞台集成 DWM 缩略图
+    HWND stageTargetHwnd = nullptr;
+    QRect stageRect;
+    void updateStageThumbnailProperties();
 };
 
 
