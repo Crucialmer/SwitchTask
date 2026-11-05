@@ -209,6 +209,43 @@ void SettingsDialog::setupUi() {
     layoutTheme->addWidget(m_themeSeg);
     contentLayout->addWidget(cardTheme);
 
+    // 卡片 3.5：实时窗口缩略图预览（带有 macOS 原生分段选择器 MacSegmentedControl）
+    auto* cardThumb = new QFrame(scrollContent);
+    cardThumb->setObjectName("macCard");
+    auto* layoutThumb = new QVBoxLayout(cardThumb);
+    layoutThumb->setContentsMargins(12, 9, 12, 9);
+    layoutThumb->setSpacing(8);
+
+    auto* headerThumbRow = new QHBoxLayout();
+    headerThumbRow->setContentsMargins(0, 0, 0, 0);
+    headerThumbRow->setSpacing(10);
+
+    auto* badgeThumb = new MacCategoryBadge(MacCategoryBadge::Window, QColor(0x32, 0xAD, 0xE6), cardThumb);
+    auto* textThumbLayout = new QVBoxLayout();
+    textThumbLayout->setContentsMargins(0, 0, 0, 0);
+    textThumbLayout->setSpacing(4);
+
+    auto* lblThumb = new QLabel(QStringLiteral("实时窗口缩略图预览"), cardThumb);
+    lblThumb->setObjectName("label_section");
+    auto* descThumb = new QLabel(QStringLiteral("切换时展示窗口实时画面（DWM 硬件加速，零 CPU 占用）"), cardThumb);
+    descThumb->setObjectName("label_dim");
+    descThumb->setWordWrap(true);
+
+    textThumbLayout->addWidget(lblThumb);
+    textThumbLayout->addWidget(descThumb);
+    headerThumbRow->addWidget(badgeThumb, 0, Qt::AlignVCenter);
+    headerThumbRow->addLayout(textThumbLayout, 1);
+
+    m_thumbnailSeg = new MacSegmentedControl({
+        QStringLiteral("悬浮卡片 (推荐)"),
+        QStringLiteral("舞台集成"),
+        QStringLiteral("关闭")
+    }, cardThumb);
+
+    layoutThumb->addLayout(headerThumbRow);
+    layoutThumb->addWidget(m_thumbnailSeg);
+    contentLayout->addWidget(cardThumb);
+
     // 卡片 4：高级配置管理
     auto* cardConfig = new QFrame(scrollContent);
     cardConfig->setObjectName("macCard");
@@ -279,6 +316,10 @@ void SettingsDialog::setupUi() {
         this->applyTheme();
     });
 
+    connect(m_thumbnailSeg, &MacSegmentedControl::currentIndexChanged, this, [](int index) {
+        CFG.setThumbnailMode(static_cast<ThumbnailMode>(index));
+    });
+
     connect(m_editConfigBtn, &QPushButton::clicked, this, [] {
         CFG.editConfigFile();
     });
@@ -316,6 +357,7 @@ void SettingsDialog::showEvent(QShowEvent* event) {
         const QSignalBlocker b1(m_startupSwitch);
         const QSignalBlocker b2(m_monitorSeg);
         const QSignalBlocker b3(m_themeSeg);
+        const QSignalBlocker b4(m_thumbnailSeg);
 
         m_startupSwitch->setChecked(Startup::isOn(), false);
         m_monitorSeg->setCurrentIndex(CFG.getDisplayMonitor() == MouseMonitor ? 0 : 1, false);
@@ -323,6 +365,7 @@ void SettingsDialog::showEvent(QShowEvent* event) {
         const auto theme = CFG.getThemeMode();
         const int themeIdx = (theme == ThemeAuto) ? 0 : ((theme == ThemeLight) ? 1 : 2);
         m_themeSeg->setCurrentIndex(themeIdx, false);
+        m_thumbnailSeg->setCurrentIndex(static_cast<int>(CFG.getThumbnailMode()), false);
     }
 
     // 自动定位至屏幕工作区右下角

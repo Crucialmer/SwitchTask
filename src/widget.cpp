@@ -27,6 +27,7 @@
 #include "utils/ConfigManager.h"
 #include "utils/Theme.h"
 #include "utils/MacToast.h"
+#include "ThumbnailPreview.h"
 
 // 图标模式：true=优先每个窗口自身的图标（可区分不同文件夹/头像；源图通常 32px，放大到 64px 实测偏糊）；
 // false=统一应用图标（锐利）+ QQ 窗口叠加聊天头像角标。2026-10-11 实测后采用 false（B 方案）
@@ -94,6 +95,10 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     // 悬停实时选中：开启 viewport 的鼠标跟踪——无按键按下的移动事件才会投递（eventFilter 的 MouseMove 分支依赖）
     lw->viewport()->setMouseTracking(true);
 
+    popupWidget = new ThumbnailPopupWidget(nullptr);
+    stageWidget = new ThumbnailHostWidget(this);
+    stageWidget->hide();
+
     // 深浅色主题：面板/标题/选中底配色随系统自动切换（config.ini 的 ThemeMode 可强制 light/dark）
     applyTheme();
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
@@ -104,12 +109,15 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
         // （其连接先于本处注册、同一事件内先行执行）；此处只应用配色——applyTheme 读取的
         // isDark() 直接取配置，不依赖 Qt 侧调色板，因此与调用顺序无关
         applyTheme();
+        relayoutGeometry();
+        updateThumbnailForCurrentItem();
     });
 
     connect(lw, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* cur, QListWidgetItem*) {
         if (cur) {
             showLabelForItem(cur);
             startSelectionGrow(); // macOS 风格：选中项放大动效（快速切换时呈“跟随放大”效果）
+            updateThumbnailForCurrentItem();
         }
     });
 
@@ -136,7 +144,17 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
 }
 
 Widget::~Widget() {
+    hideThumbnails();
+    if (popupWidget) {
+        delete popupWidget;
+        popupWidget = nullptr;
+    }
     delete ui;
+}
+
+void Widget::hideEvent(QHideEvent* event) {
+    QWidget::hideEvent(event);
+    hideThumbnails();
 }
 
 void Widget::keyPressEvent(QKeyEvent* event) {
@@ -227,6 +245,7 @@ bool Widget::forceShow() {
         setWindowOpacity(1);
     }
     startSelectionGrow(); // macOS 风格：弹出时选中项胶囊弹性登场
+    updateThumbnailForCurrentItem();
     return isForeground();
 }
 
@@ -366,6 +385,16 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
         painter.setPen(QPen(QBrush(edge), 1.5));
         painter.setBrush(Qt::NoBrush);
         painter.drawPath(inner);
+    }
+
+    // 方案 2：macOS 26 舞台集成卡片背景衬底与微发光描边
+    if (stageWidget && stageWidget->isVisible()) {
+        QRectF stageRect = stageWidget->geometry();
+        QPainterPath stagePath;
+        stagePath.addRoundedRect(stageRect.adjusted(-2, -2, 2, 2), 10, 10);
+        painter.setPen(QPen(QColor(255, 255, 255, 22), 1));
+        painter.setBrush(QColor(0, 0, 0, 42));
+        painter.drawPath(stagePath);
     }
 
     // 细微外轮廓描边：在明/暗壁纸上清晰勾勒通透面板
@@ -587,6 +616,23 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
             }
         }
 
+        const auto thumbMode = CFG.getThumbnailMode();
+        const bool isIntegrated = (thumbMode == ThumbnailIntegrated);
+
+        int stageHeightWithGap = 0;
+        constexpr int kStageH = 190;
+        const int stageW = qBound(320, thisRect.width() - 48, 480);
+
+        if (isIntegrated && stageWidget) {
+            stageHeightWithGap = kStageH + 14;
+            stageWidget->setFixedSize(stageW, kStageH);
+            stageWidget->show();
+            thisRect.setWidth(qMax(thisRect.width(), stageW + 32));
+        } else if (stageWidget) {
+            stageWidget->hide();
+            stageWidget->releaseThumbnail();
+        }
+
         // macOS 风格：垂直留白近似对称
         {
             const auto fm = QFontMetrics(ui->label->font());
@@ -594,7 +640,7 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
             const int gapBelowText = ListWidgetMargin.top() + iconInset;
             constexpr int kBottomPadTrim = 6;
             const int bottomPad = qMax(0, gapBelowText - fm.descent() - kBottomPadTrim);
-            thisRect.setHeight(ListWidgetMargin.top() + lw->gridSize().height() + kCellLabelGap + fm.height() + bottomPad);
+            thisRect.setHeight(ListWidgetMargin.top() + stageHeightWithGap + lw->gridSize().height() + kCellLabelGap + fm.height() + bottomPad);
         }
 
         thisRect.moveCenter(screen->geometry().center());
@@ -608,8 +654,13 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
 
         this->setGeometry(thisRect);
 
+        if (isIntegrated && stageWidget) {
+            const int stageX = (this->width() - stageW) / 2;
+            stageWidget->move(stageX, ListWidgetMargin.top());
+        }
+
         lwRect.moveLeft((this->width() - lwRect.width()) / 2); // 水平居中
-        lwRect.moveTop(ListWidgetMargin.top());                // 顶部固定
+        lwRect.moveTop(ListWidgetMargin.top() + stageHeightWithGap); // 舞台下方放置列表
         lw->move(lwRect.topLeft());
 
         if (auto* cur = lw->currentItem()) {
@@ -990,4 +1041,55 @@ HWND Widget::rotateNormalWindowInGroup(const QList<HWND>& windows, HWND current,
 
 void Widget::clearGroupWindowOrder() {
     groupWindowOrder.clear();
+}
+
+void Widget::updateThumbnailForCurrentItem() {
+    if (!isVisible() && !pinned) return;
+    const auto mode = CFG.getThumbnailMode();
+    if (mode == ThumbnailDisabled) {
+        hideThumbnails();
+        return;
+    }
+
+    auto* item = lw->currentItem();
+    if (!item) {
+        hideThumbnails();
+        return;
+    }
+
+    auto info = item->data(Qt::UserRole).value<WindowInfo>();
+    if (!info.hwnd || !IsWindow(info.hwnd)) {
+        hideThumbnails();
+        return;
+    }
+
+    if (mode == ThumbnailPopup) {
+        if (stageWidget) {
+            stageWidget->hide();
+            stageWidget->releaseThumbnail();
+        }
+        if (popupWidget) {
+            const auto itemRect = lw->visualItemRect(item);
+            const QRect globalRect(lw->mapToGlobal(itemRect.topLeft()), itemRect.size());
+            auto* screen = QGuiApplication::screenAt(globalRect.center());
+            if (!screen) screen = QGuiApplication::primaryScreen();
+            popupWidget->showForWindow(info.hwnd, globalRect, screen);
+        }
+    } else if (mode == ThumbnailIntegrated) {
+        if (popupWidget) {
+            popupWidget->hidePopup();
+        }
+        if (stageWidget) {
+            stageWidget->show();
+            stageWidget->setTargetWindow(info.hwnd);
+        }
+    }
+}
+
+void Widget::hideThumbnails() {
+    if (popupWidget) popupWidget->hidePopup();
+    if (stageWidget) {
+        stageWidget->releaseThumbnail();
+        stageWidget->hide();
+    }
 }

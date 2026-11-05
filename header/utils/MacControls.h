@@ -14,7 +14,7 @@
 /// macOS 风格类别图标徽标（28x28 连续曲率方圆角，内置柔和背景与抗锯齿矢量符号）
 class MacCategoryBadge : public QWidget {
 public:
-    enum IconType { Rocket, Monitor, Palette, Gear };
+    enum IconType { Rocket, Monitor, Palette, Gear, Window };
 
     MacCategoryBadge(IconType type, const QColor& bgColor, QWidget* parent = nullptr)
         : QWidget(parent), m_type(type), m_bgColor(bgColor) {
@@ -61,6 +61,13 @@ protected:
             p.drawEllipse(QRectF(9.5, 9.5, 2.2, 2.2));
             p.drawEllipse(QRectF(14, 8.5, 2.2, 2.2));
             p.drawEllipse(QRectF(17, 12, 2.2, 2.2));
+            break;
+        }
+        case Window: { // 窗口画框图标
+            p.drawRoundedRect(QRectF(6, 7, 16, 13), 2, 2);
+            p.drawLine(QPointF(6, 11), QPointF(22, 11));
+            p.drawPoint(QPointF(9, 9));
+            p.drawPoint(QPointF(12, 9));
             break;
         }
         case Gear: { // 齿轮/设置图标

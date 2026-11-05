@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SwitchTask VERSION 2.3.0) # SwitchTask v2.3 版本
+project(SwitchTask VERSION 2.4.0) # SwitchTask v2.4 版本
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,6 +46,8 @@ add_executable(${PROJECT_NAME} src/main.cpp
         src/widget.cpp
         header/widget.h
         ui/widget.ui
+        src/ThumbnailPreview.cpp
+        header/ThumbnailPreview.h
         src/utils/winEventHook.cpp
         header/utils/winEventHook.h
         src/utils/Util.cpp

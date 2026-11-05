@@ -4,6 +4,47 @@
 
 ---
 
+## [v2.4] - 2026-11-05
+
+### 🎨 SwitchTask v2.4 — macOS 26 专属实时窗口缩略图与双方案对比发布 (Live Thumbnail & Stage HUD Release)
+
+**SwitchTask** 正式发布 **v2.4** 重磅功能与美学升级！基于 macOS 26 设计哲学与 Windows DWM 硬件加速合成器，全面引入真正的 60fps 实时窗口缩略图预览系统。本次更新不仅在图形渲染与架构上完全实现零 CPU 占用，更原生提供两种精心打磨的交互美学形态，并在发布区同步推出双预置版本供实际体验对比。
+
+#### 🌟 v2.4 核心新特性与设计规范
+1. **方案 1：macOS 26 悬浮胶囊卡片预览（Floating Preview Island，默认推荐）**：
+   - 当在切换器中选择或鼠标悬停在应用图标上时，在该图标正上方平滑浮现独立的悬浮预览卡片；
+   - 深度融合 macOS 26 核心质感：深石墨半透明通透底色（`Theme::panelFill()`）、Win11 硬件级亚克力毛玻璃材质（`setWindowBlur`）、$n=5$ 超椭圆方圆角微光描边与内侧顶部细受光缘；
+   - **动态焦点跟随动效**：支持在连续按 Tab 或方向键选择时，预览卡片以 110ms `OutCubic` 缓动平滑水平滑移至对应图标正上方，流畅灵动；
+   - **绝对免激活安全保障**：显式注入 `WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` 与 `Qt::WA_ShowWithoutActivating`，确保预览浮窗永远不抢夺键盘与鼠标焦点，杜绝 Alt+Tab 连按打断；
+   - 保持 SwitchTask 原版紧凑 Dock 胶囊条的轻盈小巧，随用随现。
+
+2. **方案 2：macOS 26 舞台集成面板（Integrated Stage HUD）**：
+   - 类似 macOS Stage Manager（台前调度）与大尺寸交互中心，切换器主面板垂直加高一体成型；
+   - **居中高清舞台**：在底栏图标区上方开辟常驻中央舞台（Stage Card），内嵌微磨砂暗凹槽背景与 1px 优雅微光边框；
+   - 随当前选中窗口实时切换舞台内的高清 DWM 画面，开阔直观、沉浸感拉满。
+
+3. **原生 Windows DWM 硬件加速合成引擎（Zero CPU Overhead）**：
+   - 彻底淘汰卡顿、延迟、高耗电的传统 GDI 截图轮询机制，直接基于 Windows 桌面窗口管理器 DWM Thumbnail API（`DwmRegisterThumbnail` / `DwmUpdateThumbnailProperties`）；
+   - 由 GPU 显存合成器直接向目标区域投影源窗口画面，即使目标窗口正在播放 4K 视频或运行三维游戏，缩略图画面依然流畅同步播放，CPU 占用稳定为 0%；
+   - 具备完备的生命周期闭环：切窗即注销、弹窗隐藏与析构即时释放全部 DWM 句柄，杜绝任何句柄泄漏与显存残留。
+
+4. **8K 超清感知与长宽比等比动态适配（Letterbox / Aspect Fit）**：
+   - 自动查询源窗口真实宽高比例（`DwmQueryThumbnailSourceSize`），无论面对超宽带鱼屏、16:9 宽屏还是手机模拟器等竖屏窗口，均智能等比自适应居中缩放，绝不拉伸挤压变形；
+   - 换算物理渲染矩形（`rcDestination`）时严格对齐 Per-Monitor V2 浮点无损动态像素比（`devicePixelRatioF()`），在 125%、150%、200% 至 400% 任意高 DPI 显示器上均保持绝对清晰与准确贴合。
+
+5. **macOS 26 设置中心胶囊分段选择器（一键无缝切换）**：
+   - 在 `SettingsDialog` 设置窗口新增专属卡片，配备原生的三段式 `MacSegmentedControl`（`悬浮卡片 (推荐)` / `舞台集成` / `关闭`）；
+   - 设置后即时生效，无需重启程序，可在两个方案之间随时无缝切换。
+
+6. **CI/CD 自动化双包打包与分发流水线**：
+   - GitHub Actions 自动构建工作流全面升级，发布时自动打包生成两个预先配置好的独立压缩包：
+     - 📦 `SwitchTask-PopupPreview.zip`（预设方案 1：悬浮卡片预览）
+     - 📦 `SwitchTask-IntegratedPreview.zip`（预设方案 2：舞台集成预览）
+     - 📦 `SwitchTask.zip`（标准全能安装包）
+   - 各自配备独立的 `.sha256` 校验和文件，方便用户直接下载对比。
+
+---
+
 ## [v2.3] - 2026-10-26
 
 ### 🛡️ SwitchTask v2.3 — 全链路安全加固与鲁棒性防御升级 (Security & Hardening Release)

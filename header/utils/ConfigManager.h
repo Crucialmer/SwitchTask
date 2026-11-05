@@ -21,6 +21,13 @@ enum ThemeMode {
     ThemeDark, // 2 强制深色
 };
 
+enum ThumbnailMode {
+    ThumbnailPopup,      // 0: 悬浮卡片预览 (默认/推荐)
+    ThumbnailIntegrated, // 1: 舞台集成预览
+    ThumbnailDisabled,   // 2: 关闭实时缩略图
+    ThumbnailModeCount
+};
+
 class ConfigManager : public ConfigManagerBase {
     inline static const QString FileName = "config.ini";
 
@@ -61,9 +68,28 @@ public:
         return ThemeAuto;
     }
 
+    /// 实时缩略图模式：`thumbnail/mode = popup / integrated / disabled`
+    ThumbnailMode getThumbnailMode() {
+        const auto raw = get("thumbnail/mode", QStringLiteral("popup")).toString().trimmed().toLower();
+        if (raw == "integrated" || raw == "stage" || raw == "1")
+            return ThumbnailIntegrated;
+        if (raw == "disabled" || raw == "none" || raw == "off" || raw == "2")
+            return ThumbnailDisabled;
+        if (raw == "popup" || raw == "floating" || raw == "0" || raw.isEmpty())
+            return ThumbnailPopup;
+        qWarning() << "Invalid thumbnail/mode (expect popup/integrated/disabled), fallback to popup:" << raw;
+        return ThumbnailPopup;
+    }
+
+    void setThumbnailMode(ThumbnailMode mode) {
+        QString val = QStringLiteral("popup");
+        if (mode == ThumbnailIntegrated) val = QStringLiteral("integrated");
+        else if (mode == ThumbnailDisabled) val = QStringLiteral("disabled");
+        set("thumbnail/mode", val);
+    }
+
 private:
     explicit ConfigManager(const QString& filename) : ConfigManagerBase(filename) {}
 };
-
 
 #endif //WIN_SWITCHER_CONFIGMANAGER_H

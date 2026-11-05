@@ -33,6 +33,8 @@ QT_END_NAMESPACE
 
 class IconOnlyDelegate;
 class QVariantAnimation;
+class ThumbnailPopupWidget;
+class ThumbnailHostWidget;
 
 class Widget : public QWidget {
     Q_OBJECT
@@ -41,6 +43,7 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
+    void hideEvent(QHideEvent* event) override;
 
 public:
     enum ForegroundChangeSource {
@@ -87,6 +90,8 @@ private:
     void relayoutGeometry(QScreen* targetScreen = nullptr);
     void showLabelForItem(QListWidgetItem* item);
     void setupLabelFont();
+    void updateThumbnailForCurrentItem();
+    void hideThumbnails();
     /// 应用当前深浅色主题：底部标题颜色、选中/悬停/描边色、面板与列表重绘
     void applyTheme();
     void sortGroupWindows(QList<HWND>& windows, const QString& exePath);
@@ -115,6 +120,10 @@ private:
     bool isLastTaskbarForward = true;
     // Ctrl+Alt+Tab pinned 模式：松开按键后保持显示，Enter/点击确认，Esc 取消
     bool pinned = false;
+
+    // --- 实时窗口缩略图组件 ---
+    ThumbnailPopupWidget* popupWidget = nullptr; // 方案 1：macOS 26 悬浮微型卡片
+    ThumbnailHostWidget* stageWidget = nullptr;  // 方案 2：macOS 26 舞台集成卡片
 };
 
 

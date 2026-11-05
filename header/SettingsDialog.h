@@ -33,6 +33,7 @@ private:
     MacToggleSwitch* m_startupSwitch = nullptr;
     MacSegmentedControl* m_monitorSeg = nullptr;
     MacSegmentedControl* m_themeSeg = nullptr;
+    MacSegmentedControl* m_thumbnailSeg = nullptr;
     QPushButton* m_editConfigBtn = nullptr;
     QPushButton* m_checkUpdateBtn = nullptr;
     QPushButton* m_doneBtn = nullptr;
