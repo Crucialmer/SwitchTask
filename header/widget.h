@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <Windows.h>
+#include <dwmapi.h>
 #include <QListWidget>
 #include <QDebug>
 #include <QDateTime>
