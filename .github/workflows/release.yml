@@ -75,11 +75,7 @@ jobs:
           # 1. 方案 1：macOS 26 悬浮胶囊卡片预览版（预置 config.ini: thumbnail/mode=popup）
           $dirPopup = "$dir-popup"
           Copy-Item -Path $dir -Destination $dirPopup -Recurse
-          $cfgPopup = @"
-[thumbnail]
-mode = popup
-"@
-          $cfgPopup | Out-File -FilePath "$dirPopup\config.ini" -Encoding utf8
+          "[thumbnail]`r`nmode = popup" | Out-File -FilePath "$dirPopup\config.ini" -Encoding utf8
           $zipPopup = "SwitchTask-PopupPreview.zip"
           Compress-Archive -Path "$dirPopup\*" -DestinationPath $zipPopup
           $hashPopup = (Get-FileHash -Path $zipPopup -Algorithm SHA256).Hash.ToLower()
@@ -88,11 +84,7 @@ mode = popup
           # 2. 方案 2：macOS 26 舞台集成面板预览版（预置 config.ini: thumbnail/mode=integrated）
           $dirIntegrated = "$dir-integrated"
           Copy-Item -Path $dir -Destination $dirIntegrated -Recurse
-          $cfgIntegrated = @"
-[thumbnail]
-mode = integrated
-"@
-          $cfgIntegrated | Out-File -FilePath "$dirIntegrated\config.ini" -Encoding utf8
+          "[thumbnail]`r`nmode = integrated" | Out-File -FilePath "$dirIntegrated\config.ini" -Encoding utf8
           $zipIntegrated = "SwitchTask-IntegratedPreview.zip"
           Compress-Archive -Path "$dirIntegrated\*" -DestinationPath $zipIntegrated
           $hashIntegrated = (Get-FileHash -Path $zipIntegrated -Algorithm SHA256).Hash.ToLower()
