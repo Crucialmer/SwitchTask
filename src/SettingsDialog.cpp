@@ -237,8 +237,8 @@ void SettingsDialog::setupUi() {
     headerThumbRow->addLayout(textThumbLayout, 1);
 
     m_thumbnailSeg = new MacSegmentedControl({
-        QStringLiteral("悬浮卡片 (推荐)"),
-        QStringLiteral("舞台集成"),
+        QStringLiteral("舞台集成 (推荐)"),
+        QStringLiteral("悬浮卡片"),
         QStringLiteral("关闭")
     }, cardThumb);
 

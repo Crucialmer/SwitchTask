@@ -95,7 +95,8 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     // 悬停实时选中：开启 viewport 的鼠标跟踪——无按键按下的移动事件才会投递（eventFilter 的 MouseMove 分支依赖）
     lw->viewport()->setMouseTracking(true);
 
-    popupWidget = new ThumbnailPopupWidget(nullptr);
+    // 方案 1 悬浮卡片窗口改为按需懒加载（默认方案 2 舞台模式下零额外窗口句柄开销）
+    popupWidget = nullptr;
 
     // 深浅色主题：面板/标题/选中底配色随系统自动切换（config.ini 的 ThemeMode 可强制 light/dark）
     applyTheme();
@@ -335,6 +336,7 @@ void Widget::applyTheme() {
         iconDelegate->setColors(Theme::selectionFill(), Theme::hoverFill(), Theme::selectionStroke());
     panelFillColor = Theme::panelFill();
     panelStrokeColor = Theme::panelStroke();
+    cachedThumbMode = CFG.getThumbnailMode();
     if (lw)
         lw->viewport()->update();
     update(); // 面板底色/描边重绘
@@ -385,20 +387,38 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
         painter.drawPath(inner);
     }
 
-    // 方案 2：macOS 26 舞台集成卡片背景衬底与微发光描边
-    if (CFG.getThumbnailMode() == ThumbnailIntegrated && !stageRect.isEmpty()) {
+    // 方案 2：macOS 26 舞台集成卡片背景衬底与微发光描边（默认推荐旗舰模式）
+    if (cachedThumbMode == ThumbnailIntegrated && !stageRect.isEmpty()) {
+        const QRectF stageBox = QRectF(stageRect).adjusted(-2, -2, 2, 2);
         QPainterPath stagePath;
-        stagePath.addRoundedRect(QRectF(stageRect).adjusted(-2, -2, 2, 2), 10, 10);
-        painter.setPen(QPen(QColor(255, 255, 255, 22), 1));
-        painter.setBrush(QColor(0, 0, 0, 42));
+        stagePath.addRoundedRect(stageBox, 11, 11);
+
+        // Apple 式暗调内嵌舞台井深度光影
+        QLinearGradient stageWell(0, stageBox.top(), 0, stageBox.bottom());
+        stageWell.setColorAt(0.0, QColor(0, 0, 0, 56));
+        stageWell.setColorAt(1.0, QColor(0, 0, 0, 36));
+        painter.setBrush(stageWell);
+        painter.setPen(QPen(QColor(255, 255, 255, 26), 1));
         painter.drawPath(stagePath);
 
+        // 舞台顶端 1px 内切漫反射微光线
+        {
+            QPainterPath stageInnerSheen;
+            stageInnerSheen.addRoundedRect(stageBox.adjusted(1, 1, -1, -1), 10, 10);
+            QLinearGradient sheenGrad(0, stageBox.top(), 0, stageBox.top() + 3);
+            sheenGrad.setColorAt(0.0, QColor(255, 255, 255, 36));
+            sheenGrad.setColorAt(1.0, Qt::transparent);
+            painter.setPen(QPen(QBrush(sheenGrad), 1));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawPath(stageInnerSheen);
+        }
+
         if (!stageThumbnail || !stageTargetHwnd || !IsWindow(stageTargetHwnd)) {
-            painter.setPen(QColor(255, 255, 255, 120));
+            painter.setPen(QColor(255, 255, 255, 140));
             QFont f = painter.font();
             f.setPointSize(9);
             painter.setFont(f);
-            painter.drawText(stageRect, Qt::AlignCenter, QStringLiteral("窗口已最小化或暂无画面"));
+            painter.drawText(stageRect, Qt::AlignCenter, QStringLiteral("窗口已最小化或暂无实时画面"));
         }
     }
 
@@ -622,15 +642,16 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
         }
 
         const auto thumbMode = CFG.getThumbnailMode();
+        cachedThumbMode = thumbMode;
         const bool isIntegrated = (thumbMode == ThumbnailIntegrated);
 
         int stageHeightWithGap = 0;
         constexpr int kStageH = 190;
-        const int stageW = qBound(320, thisRect.width() - 48, 480);
 
         if (isIntegrated) {
             stageHeightWithGap = kStageH + 14;
-            thisRect.setWidth(qMax(thisRect.width(), stageW + 32));
+            constexpr int kMinIntegratedW = 400;
+            thisRect.setWidth(qMax(thisRect.width(), kMinIntegratedW));
         } else {
             if (stageThumbnail) {
                 DwmUnregisterThumbnail(stageThumbnail);
@@ -661,8 +682,9 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
         this->setGeometry(thisRect);
 
         if (isIntegrated) {
-            const int stageX = (this->width() - stageW) / 2;
-            stageRect = QRect(stageX, ListWidgetMargin.top(), stageW, kStageH);
+            const int actualStageW = qBound(340, this->width() - 48, 540);
+            const int stageX = (this->width() - actualStageW) / 2;
+            stageRect = QRect(stageX, ListWidgetMargin.top(), actualStageW, kStageH);
             updateStageThumbnailProperties();
         }
 
@@ -1053,6 +1075,7 @@ void Widget::clearGroupWindowOrder() {
 void Widget::updateThumbnailForCurrentItem() {
     if (!isVisible() && !pinned) return;
     const auto mode = CFG.getThumbnailMode();
+    cachedThumbMode = mode;
     if (mode == ThumbnailDisabled) {
         hideThumbnails();
         return;
@@ -1075,28 +1098,31 @@ void Widget::updateThumbnailForCurrentItem() {
             DwmUnregisterThumbnail(stageThumbnail);
             stageThumbnail = nullptr;
         }
-        if (popupWidget) {
-            const auto itemRect = lw->visualItemRect(item);
-            const QRect globalRect(lw->mapToGlobal(itemRect.topLeft()), itemRect.size());
-            auto* screen = QGuiApplication::screenAt(globalRect.center());
-            if (!screen) screen = QGuiApplication::primaryScreen();
-            popupWidget->showForWindow(info.hwnd, globalRect, screen);
+        if (!popupWidget) {
+            popupWidget = new ThumbnailPopupWidget(nullptr);
         }
+        const auto itemRect = lw->visualItemRect(item);
+        const QRect globalRect(lw->mapToGlobal(itemRect.topLeft()), itemRect.size());
+        auto* screen = QGuiApplication::screenAt(globalRect.center());
+        if (!screen) screen = QGuiApplication::primaryScreen();
+        popupWidget->showForWindow(info.hwnd, globalRect, screen);
     } else if (mode == ThumbnailIntegrated) {
         if (popupWidget) {
             popupWidget->hidePopup();
         }
-        if (stageThumbnail) {
-            DwmUnregisterThumbnail(stageThumbnail);
-            stageThumbnail = nullptr;
-        }
-        stageTargetHwnd = info.hwnd;
-        if (stageTargetHwnd && IsWindow(stageTargetHwnd)) {
-            HRESULT hr = DwmRegisterThumbnail(hWnd(), stageTargetHwnd, &stageThumbnail);
-            qInfo() << "Stage DwmRegisterThumbnail:" << Qt::hex << hr << "dest:" << hWnd() << "src:" << stageTargetHwnd;
-            if (SUCCEEDED(hr) && stageThumbnail) {
-                updateStageThumbnailProperties();
+        if (stageTargetHwnd != info.hwnd || !stageThumbnail) {
+            if (stageThumbnail) {
+                DwmUnregisterThumbnail(stageThumbnail);
+                stageThumbnail = nullptr;
             }
+            stageTargetHwnd = info.hwnd;
+            if (stageTargetHwnd && IsWindow(stageTargetHwnd)) {
+                HRESULT hr = DwmRegisterThumbnail(hWnd(), stageTargetHwnd, &stageThumbnail);
+                qInfo() << "Stage DwmRegisterThumbnail:" << Qt::hex << hr << "dest:" << hWnd() << "src:" << stageTargetHwnd;
+            }
+        }
+        if (stageThumbnail) {
+            updateStageThumbnailProperties();
         }
         update();
     }
@@ -1106,7 +1132,13 @@ void Widget::updateStageThumbnailProperties() {
     if (!stageThumbnail || stageRect.isEmpty() || !stageTargetHwnd || !IsWindow(stageTargetHwnd)) return;
 
     SIZE srcSize = {0, 0};
-    DwmQueryThumbnailSourceSize(stageThumbnail, &srcSize);
+    if (FAILED(DwmQueryThumbnailSourceSize(stageThumbnail, &srcSize)) || srcSize.cx <= 0 || srcSize.cy <= 0) {
+        RECT rc;
+        if (GetWindowRect(stageTargetHwnd, &rc)) {
+            srcSize.cx = rc.right - rc.left;
+            srcSize.cy = rc.bottom - rc.top;
+        }
+    }
 
     QRect contentRect = stageRect.adjusted(8, 8, -8, -8);
     QRect fitRect = contentRect;
@@ -1129,6 +1161,8 @@ void Widget::updateStageThumbnailProperties() {
     rcDest.top    = qRound(fitRect.top() * dpr);
     rcDest.right  = qRound(fitRect.right() * dpr);
     rcDest.bottom = qRound(fitRect.bottom() * dpr);
+
+    if (rcDest.right <= rcDest.left || rcDest.bottom <= rcDest.top) return;
 
     DWM_THUMBNAIL_PROPERTIES props = {};
     props.dwFlags = DWM_TNP_RECTDESTINATION | DWM_TNP_VISIBLE | DWM_TNP_OPACITY;

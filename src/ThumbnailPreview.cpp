@@ -161,6 +161,8 @@ void ThumbnailPopupWidget::updateThumbnailProperties() {
     rcDest.right  = qRound(fitRect.right() * dpr);
     rcDest.bottom = qRound(fitRect.bottom() * dpr);
 
+    if (rcDest.right <= rcDest.left || rcDest.bottom <= rcDest.top) return;
+
     DWM_THUMBNAIL_PROPERTIES props = {};
     props.dwFlags = DWM_TNP_RECTDESTINATION | DWM_TNP_VISIBLE | DWM_TNP_OPACITY;
     props.rcDestination = rcDest;
@@ -206,7 +208,7 @@ void ThumbnailPopupWidget::updatePopupGeometry(const QRect& iconGlobalRect, QScr
     if (x < avail.left() + 8) x = avail.left() + 8;
     if (x + cardW > avail.right() - 8) x = avail.right() - 8 - cardW;
     if (y < avail.top() + 8) {
-        y = avail.top() + 8;
+        y = iconGlobalRect.bottom() + 12;
     }
 
     QRect targetGeo(x, y, cardW, cardH);

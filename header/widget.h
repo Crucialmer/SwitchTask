@@ -8,6 +8,7 @@
 #include <QDebug>
 #include <QDateTime>
 #include <QColor>
+#include "utils/ConfigManager.h"
 
 struct WindowInfo {
     QString title;
@@ -122,7 +123,8 @@ private:
     bool pinned = false;
 
     // --- 实时窗口缩略图组件 ---
-    ThumbnailPopupWidget* popupWidget = nullptr; // 方案 1：macOS 26 悬浮微型卡片
+    ThumbnailMode cachedThumbMode = ThumbnailIntegrated;
+    ThumbnailPopupWidget* popupWidget = nullptr; // 方案 1：macOS 26 悬浮微型卡片（按需懒加载）
     HTHUMBNAIL stageThumbnail = nullptr;         // 方案 2：macOS 26 舞台集成 DWM 缩略图
     HWND stageTargetHwnd = nullptr;
     QRect stageRect;

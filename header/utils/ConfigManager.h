@@ -22,8 +22,8 @@ enum ThemeMode {
 };
 
 enum ThumbnailMode {
-    ThumbnailPopup,      // 0: 悬浮卡片预览 (默认/推荐)
-    ThumbnailIntegrated, // 1: 舞台集成预览
+    ThumbnailIntegrated, // 0: 舞台集成预览 (默认推荐)
+    ThumbnailPopup,      // 1: 悬浮卡片预览
     ThumbnailDisabled,   // 2: 关闭实时缩略图
     ThumbnailModeCount
 };
@@ -68,22 +68,22 @@ public:
         return ThemeAuto;
     }
 
-    /// 实时缩略图模式：`thumbnail/mode = popup / integrated / disabled`
+    /// 实时缩略图模式：`thumbnail/mode = integrated / popup / disabled`（以方案2舞台集成为默认设置）
     ThumbnailMode getThumbnailMode() {
-        const auto raw = get("thumbnail/mode", QStringLiteral("popup")).toString().trimmed().toLower();
-        if (raw == "integrated" || raw == "stage" || raw == "1")
-            return ThumbnailIntegrated;
+        const auto raw = get("thumbnail/mode", QStringLiteral("integrated")).toString().trimmed().toLower();
+        if (raw == "popup" || raw == "floating" || raw == "1")
+            return ThumbnailPopup;
         if (raw == "disabled" || raw == "none" || raw == "off" || raw == "2")
             return ThumbnailDisabled;
-        if (raw == "popup" || raw == "floating" || raw == "0" || raw.isEmpty())
-            return ThumbnailPopup;
-        qWarning() << "Invalid thumbnail/mode (expect popup/integrated/disabled), fallback to popup:" << raw;
-        return ThumbnailPopup;
+        if (raw == "integrated" || raw == "stage" || raw == "0" || raw.isEmpty())
+            return ThumbnailIntegrated;
+        qWarning() << "Invalid thumbnail/mode (expect integrated/popup/disabled), fallback to integrated:" << raw;
+        return ThumbnailIntegrated;
     }
 
     void setThumbnailMode(ThumbnailMode mode) {
-        QString val = QStringLiteral("popup");
-        if (mode == ThumbnailIntegrated) val = QStringLiteral("integrated");
+        QString val = QStringLiteral("integrated");
+        if (mode == ThumbnailPopup) val = QStringLiteral("popup");
         else if (mode == ThumbnailDisabled) val = QStringLiteral("disabled");
         set("thumbnail/mode", val);
     }
