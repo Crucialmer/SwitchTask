@@ -161,7 +161,7 @@ void ThumbnailHostWidget::paintEvent(QPaintEvent*) {
 // ============================================================================
 
 ThumbnailPopupWidget::ThumbnailPopupWidget(QWidget* parent)
-    : QWidget(parent, Qt::ToolTip | Qt::FramelessWindowHint | Qt::WA_ShowWithoutActivating) {
+    : QWidget(parent, Qt::ToolTip | Qt::FramelessWindowHint) {
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_ShowWithoutActivating);
     setWindowTitle("SwitchTask Preview");
