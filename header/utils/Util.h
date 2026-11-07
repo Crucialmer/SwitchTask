@@ -46,6 +46,9 @@ namespace Util {
     POINT getCursorPos();
     HWND getCurrentTaskListThumbnailWnd();
     bool isTaskbarWindow(HWND hwnd);
+    /// 窗口是否被其他窗口完全遮挡（四角 + 中心采样，与 Chromium 的可见区域判定同构）。
+    /// 仅作启发式判断：用于"是否提示被遮挡 / 是否需要唤醒"，不追求像素级精确。
+    bool isWindowFullyCovered(HWND hwnd);
     /// 超椭圆（squircle）路径：连续曲率圆角，macOS 风格方圆角（用于选中底绘制）
     QPainterPath squirclePath(const QRectF& rect, qreal exponent = 5.0);
     /// 唤醒目标窗口渲染管道（针对 Chrome/Edge/视频播放/全屏等 DirectComposition/MPO 场景，防后台冻结与黑屏）

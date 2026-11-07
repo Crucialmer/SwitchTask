@@ -49,14 +49,6 @@ void ThumbnailPopupWidget::releaseThumbnail() {
     }
 }
 
-void ThumbnailPopupWidget::heartbeatRefresh() {
-    if (!m_hThumbnail || !m_targetHwnd || !IsWindow(m_targetHwnd) || IsIconic(m_targetHwnd) || !isVisible()) {
-        return;
-    }
-    Util::nudgeWindowRendering(m_targetHwnd);
-    updateThumbnailProperties();
-}
-
 QSize ThumbnailPopupWidget::querySourceSize() const {
     if (!m_targetHwnd || !IsWindow(m_targetHwnd)) return {};
 

@@ -48,6 +48,8 @@ add_executable(${PROJECT_NAME} src/main.cpp
         ui/widget.ui
         src/ThumbnailPreview.cpp
         header/ThumbnailPreview.h
+        src/ThumbnailHintOverlay.cpp
+        header/ThumbnailHintOverlay.h
         src/utils/winEventHook.cpp
         header/utils/winEventHook.h
         src/utils/Util.cpp

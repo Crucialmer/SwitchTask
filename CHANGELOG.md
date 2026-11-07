@@ -4,6 +4,27 @@
 
 ---
 
+## [未发布] — 优化批次 1 / 批次 2（源码完成，待编译验证）
+
+### 批次 1：低风险速修（6 项）
+
+- **键盘钩子补前台门禁**：Tab / ` / Esc / 方向键不再在"弹窗可见但未取得前台"时劫持其他程序的按键。
+- **长路径窗口不再消失**：进程路径改用 `QueryFullProcessImageNameW` + 动态缓冲，去掉 `MAX_PATH` 截断与 PsApi 依赖。
+- **弹窗路径解析加缓存**：`HWND → (pid, path)`（thread_local，pid 校验句柄复用，上限 512），每次弹窗不再逐窗口 `OpenProcess`。
+- **删除空转的选中动画**：delegate 从未读取 `selectionGrow`，动画却每帧强制整视口重绘；连同成员与调用一并移除。
+- **WinEvent 兜底重试短路**：已显示时只 `forceShow()`，不再重复枚举/重建/重注册缩略图。
+- **Release 关闭 qDebug**：定义 `QT_NO_DEBUG_OUTPUT`（`qInfo` / `qWarning` 保留）。
+
+### 批次 2：缩略图遮挡链路（4 项）
+
+- **遮挡检测** `Util::isWindowFullyCovered`：四角 + 中心采样，跳过本进程工具窗与透明覆盖物（与 Chromium 判定规则对齐）。
+- **遮挡提示胶囊** `ThumbnailHintOverlay`：独立顶层窗（DWM 缩略图合成在自绘内容之上），26px macOS 胶囊、120ms 淡入淡出、输入穿透。
+- **点击唤醒**：临时抬升目标窗口（`HWND_TOPMOST` + `SWP_NOACTIVATE`），记录 `GW_HWNDPREV` 与 topmost 位以便精确还原；仅在用户点击时触发，默认不自动抬窗。
+- **移除 60ms 递归心跳**：`WM_NULL` 递归发送不改变遮挡判定，只消耗 CPU；改为事件驱动 + 唤醒后两次脉冲。
+
+> 说明：以上两批仅完成源码修改，尚未编译与实机验证；`A5 状态机 / A6 前台空白分支 / B2 线程化 / B3 验签` 等仍在后续批次。
+
+---
 ## [v3.0] - 2026-11-07
 
 ### 🚀 SwitchTask v3.0 — 窗口选择与呼出彻底解耦规范化 & 全链路极速性能架构最优化 (Selection Decoupling & Architecture Optimization)

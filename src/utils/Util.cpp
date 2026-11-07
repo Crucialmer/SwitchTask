@@ -886,6 +886,43 @@ namespace Util {
         return nullptr;
     }
 
+    bool isWindowFullyCovered(HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd) || IsIconic(hwnd) || !IsWindowVisible(hwnd))
+            return false;
+
+        RECT rc{};
+        if (!GetWindowRect(hwnd, &rc))
+            return false;
+        const int w = rc.right - rc.left, h = rc.bottom - rc.top;
+        if (w < 8 || h < 8)
+            return false;
+
+        // 采样点避开边框（有些窗口的 4px 边框是透明的）：四点 + 中心
+        const POINT samples[5] = {
+            {rc.left + 4,     rc.top + 4},
+            {rc.right - 4,    rc.top + 4},
+            {rc.left + 4,     rc.bottom - 4},
+            {rc.right - 4,    rc.bottom - 4},
+            {rc.left + w / 2, rc.top + h / 2},
+        };
+
+        // 与 Chromium 的规则对齐：自己的工具窗、透明/点击穿透窗口都不算遮挡物，
+        // 否则切换器面板压住一角时会被误判成"整个窗口被遮挡"
+        const DWORD myPid = GetCurrentProcessId();
+        for (const auto& p : samples) {
+            HWND hit = GetAncestor(WindowFromPoint(p), GA_ROOT);
+            if (!hit || hit == hwnd)
+                return false; // 该点仍能看到目标窗口
+            DWORD pid = 0;
+            GetWindowThreadProcessId(hit, &pid);
+            if (pid == myPid)
+                continue;
+            if (GetWindowLongPtr(hit, GWL_EXSTYLE) & (WS_EX_LAYERED | WS_EX_TRANSPARENT))
+                continue;
+        }
+        return true;
+    }
+
     bool isTaskbarWindow(HWND hwnd) {
         // 栈缓冲零分配：本函数在 WH_MOUSE_LL 回调与 50ms 轮询里高频调用（回调内不做任何堆分配）
         wchar_t className[64];
