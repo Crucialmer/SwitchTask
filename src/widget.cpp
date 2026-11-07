@@ -26,7 +26,6 @@
 #include "utils/Theme.h"
 #include "utils/MacToast.h"
 #include "ThumbnailPreview.h"
-#include "ThumbnailHintOverlay.h"
 
 // 图标模式：true=优先每个窗口自身的图标（可区分不同文件夹/头像；源图通常 32px，放大到 64px 实测偏糊）；
 // false=统一应用图标（锐利）+ QQ 窗口叠加聊天头像角标。2026-10-11 实测后采用 false（B 方案）
@@ -690,14 +689,6 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
         if (auto* cur = lw->currentItem()) {
             showLabelForItem(cur);
         }
-        // 面板几何变化：胶囊跟随（浮层是独立顶层窗，不会随父窗口自动移动）
-        if (hintOverlay && hintOverlay->isVisible() && !stageRect.isEmpty()) {
-            const QSize size = hintOverlay->desiredSize();
-            const QPoint topLeft = mapToGlobal(QPoint(stageRect.left() + 10,
-                                                      stageRect.bottom() - 10 - size.height()));
-            hintOverlay->showAt(topLeft, Theme::isDark());
-            hintHitRect = QRect(mapFromGlobal(topLeft), size);
-        }
         update(); // 触发面板亚克力圆角底色与描边重绘
     }
 }
@@ -775,8 +766,6 @@ void Widget::switchToCurrentItem() {
     if (auto item = lw->currentItem()) {
         auto info = item->data(Qt::UserRole).value<WindowInfo>();
         if (info.hwnd) {
-            if (peekTargetHwnd == info.hwnd)
-                restorePeek(true); // 刚刚唤醒过的目标：只剥离 topmost，不压回遮挡物后面
             Util::switchToWindow(info.hwnd);
             qInfo() << "Switch to" << info;
         }
@@ -1104,9 +1093,6 @@ void Widget::updateThumbnailForCurrentItem() {
         return;
     }
 
-    // 选中目标变化：先还原上一目标的 Z 序，避免"临时抬升"状态泄漏到新条目
-    if (peekTargetHwnd && peekTargetHwnd != info.hwnd)
-        restorePeek();
 
     if (mode == ThumbnailPopup) {
         if (stageThumbnail) {
@@ -1121,7 +1107,6 @@ void Widget::updateThumbnailForCurrentItem() {
         auto* screen = QGuiApplication::screenAt(globalRect.center());
         if (!screen) screen = QGuiApplication::primaryScreen();
         popupWidget->showForWindow(info.hwnd, globalRect, screen);
-        hideOcclusionHint(); // 悬浮卡片模式没有舞台，不显示遮挡胶囊
     } else if (mode == ThumbnailIntegrated) {
         if (popupWidget) {
             popupWidget->hidePopup();
@@ -1153,7 +1138,6 @@ void Widget::updateThumbnailForCurrentItem() {
         }
         if (stageThumbnail) {
             updateStageThumbnailProperties();
-            refreshOcclusionHint(); // 遮挡状态决定是否显示"点击唤醒"胶囊
         }
         update();
     }
@@ -1209,131 +1193,10 @@ void Widget::updateStageThumbnailProperties() {
 }
 
 void Widget::hideThumbnails() {
-    hideOcclusionHint();
-    restorePeek(); // 面板收起：还原为预览而临时抬升的窗口
     if (popupWidget) popupWidget->hidePopup();
     if (stageThumbnail) {
         DwmUnregisterThumbnail(stageThumbnail);
         stageThumbnail = nullptr;
     }
     stageTargetHwnd = nullptr;
-}
-
-void Widget::mousePressEvent(QMouseEvent* event) {
-    // 胶囊是输入穿透的独立浮层：点击落回面板，在这里命中判定后执行"唤醒"
-    if (event->button() == Qt::LeftButton && !hintHitRect.isEmpty()
-        && hintHitRect.contains(event->pos())) {
-        wakePeekedWindow();
-        return;
-    }
-    QWidget::mousePressEvent(event);
-}
-
-void Widget::refreshOcclusionHint() {
-    if (!isVisible() || cachedThumbMode != ThumbnailIntegrated || stageRect.isEmpty()) {
-        hideOcclusionHint();
-        return;
-    }
-    auto* item = lw->currentItem();
-    if (!item) {
-        hideOcclusionHint();
-        return;
-    }
-    const auto info = item->data(Qt::UserRole).value<WindowInfo>();
-    // 最小化不是"被遮挡"：没有可预览表面，沿用面板中的占位文案
-    if (!info.hwnd || !IsWindow(info.hwnd) || IsIconic(info.hwnd)) {
-        hideOcclusionHint();
-        return;
-    }
-
-    // 只对"被遮挡就停止出帧"的应用给提示（Chromium / Gecko）。
-    // Explorer、Office、记事本等即使被完全盖住，DWM 缩略图依然实时——
-    // 给它们显示"点击唤醒"既没有作用，也是误报（实测反馈）。
-    if (!Util::isWindowOcclusionSensitive(info.hwnd, info.exePath)) {
-        hideOcclusionHint();
-        return;
-    }
-
-    // 且必须确实在播放媒体：静态网页即使被遮挡也没有"等待播放"这回事，
-    // 给提示只会制造噪音（实测反馈：没有视频的网页也会弹出提示）
-    if (!Util::isWindowPlayingMedia(info.hwnd, info.exePath)) {
-        hideOcclusionHint();
-        return;
-    }
-
-    if (!Util::isWindowFullyCovered(info.hwnd)) {
-        // 注意：不要在这里 restorePeek()。抬升后窗口当然"不再被遮挡"，
-        // 立刻还原会把刚唤醒的视频重新冻住。还原只发生在切项 / 面板收起 / 析构。
-        hideOcclusionHint();
-        return;
-    }
-
-    if (!hintOverlay)
-        hintOverlay = new ThumbnailHintOverlay(this);
-
-    const QSize size = hintOverlay->desiredSize();
-    const QPoint topLeft = mapToGlobal(QPoint(stageRect.left() + 10,
-                                             stageRect.bottom() - 10 - size.height()));
-    hintOverlay->showAt(topLeft, Theme::isDark());
-    hintHitRect = QRect(mapFromGlobal(topLeft), size);
-}
-
-void Widget::hideOcclusionHint() {
-    hintHitRect = QRect();
-    if (hintOverlay)
-        hintOverlay->dismiss();
-}
-
-void Widget::wakePeekedWindow() {
-    auto* item = lw->currentItem();
-    if (!item) return;
-    const auto info = item->data(Qt::UserRole).value<WindowInfo>();
-    if (!info.hwnd || !IsWindow(info.hwnd) || IsIconic(info.hwnd)) return;
-
-    applyPeek(info.hwnd);
-    qInfo() << "Wake occluded window:" << info.title << info.hwnd;
-
-    // 抬升后 Chromium 需要一到两帧才会重新提交视频层：补两次轻量脉冲并刷新属性
-    const HWND target = info.hwnd;
-    QTimer::singleShot(80, this, [this, target] {
-        if (peekTargetHwnd != target) return;
-        Util::nudgeWindowRendering(target);
-        updateStageThumbnailProperties();
-    });
-    QTimer::singleShot(220, this, [this, target] {
-        if (peekTargetHwnd != target) return;
-        Util::nudgeWindowRendering(target);
-        updateStageThumbnailProperties();
-        refreshOcclusionHint(); // 已可见 → 胶囊淡出
-    });
-}
-
-void Widget::applyPeek(HWND target) {
-    if (!target || !IsWindow(target) || IsIconic(target)) return;
-    if (peekTargetHwnd == target) return;
-    restorePeek();
-
-    peekTargetHwnd = target;
-    peekTargetWasTopmost = (GetWindowLongPtr(target, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-    peekPrevHwnd = GetWindow(target, GW_HWNDPREV);
-
-    // 抬到 topmost 带：全屏游戏/置顶播放器也可能是遮挡物，HWND_TOP 不足以越过它们。
-    // SWP_NOACTIVATE 保证零焦点抢占；面板随后重新压回最顶层。
-    SetWindowPos(target, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    SetWindowPos(hWnd(), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-}
-
-void Widget::restorePeek(bool keepFront) {
-    if (peekTargetHwnd && IsWindow(peekTargetHwnd) && !peekTargetWasTopmost) {
-        // 先剥离临时赋予的 topmost，再放回原来的前驱之后；两步都不能省，
-        // 否则用户窗口会永久停在最前（"只还原一半"比不还原更烦人）
-        SetWindowPos(peekTargetHwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        // keepFront：用户正要切过去，压回原前驱会让它一激活就又被遮挡物盖住
-        if (!keepFront && peekPrevHwnd && IsWindow(peekPrevHwnd)) {
-            SetWindowPos(peekTargetHwnd, peekPrevHwnd, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-        }
-    }
-    peekTargetHwnd = nullptr;
-    peekPrevHwnd = nullptr;
-    peekTargetWasTopmost = false;
 }

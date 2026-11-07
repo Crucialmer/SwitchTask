@@ -37,7 +37,6 @@ QT_END_NAMESPACE
 class IconOnlyDelegate;
 class QVariantAnimation;
 class ThumbnailPopupWidget;
-class ThumbnailHintOverlay;
 
 class Widget : public QWidget {
     Q_OBJECT
@@ -72,7 +71,6 @@ public:
 
     ~Widget() override;
     bool eventFilter(QObject* watched, QEvent* event) override;
-    void mousePressEvent(QMouseEvent* event) override;
     void rotateTaskbarWindowInGroup(const QString& exePath, bool forward, int windows);
     void clearGroupWindowOrder();
 
@@ -94,13 +92,6 @@ private:
     void setupLabelFont();
     void updateThumbnailForCurrentItem();
     void hideThumbnails();
-    // --- 遮挡提示与唤醒（v3.1）---
-    void refreshOcclusionHint();   // 按当前选中窗口的遮挡状态同步浮层
-    void hideOcclusionHint();      // 隐藏浮层并清空点击区
-    void wakePeekedWindow();       // 点击胶囊：临时抬升目标窗口唤醒其渲染
-    void applyPeek(HWND target);   // 抬升并记录还原信息
-    /// keepFront=true 用于"即将切换到它"：只剥离临时 topmost，不压回原位置
-    void restorePeek(bool keepFront = false);
     /// 应用当前深浅色主题：底部标题颜色、选中/悬停/描边色、面板与列表重绘
     void applyTheme();
     void sortGroupWindows(QList<HWND>& windows, const QString& exePath);
@@ -136,13 +127,6 @@ private:
     HWND stageTargetHwnd = nullptr;
     QRect stageRect;
     void updateStageThumbnailProperties();
-
-    // --- 遮挡提示浮层（独立顶层窗：DWM 缩略图合成在窗口自绘内容之上，子控件会被盖住）---
-    ThumbnailHintOverlay* hintOverlay = nullptr;
-    QRect hintHitRect;             // 胶囊在 Widget 坐标系中的点击区域（空 = 不可点）
-    HWND peekTargetHwnd = nullptr; // 已临时抬升的目标
-    HWND peekPrevHwnd = nullptr;   // 抬升前的 Z 序前驱
-    bool peekTargetWasTopmost = false;
 };
 
 #endif //WIN_SWITCHER_WIDGET_H
