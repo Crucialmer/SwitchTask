@@ -10,6 +10,7 @@
 #include <QEasingCurve>
 #include <QApplication>
 #include <QDebug>
+#include <QTimer>
 
 // ============================================================================
 // ThumbnailPopupWidget: 方案 1 悬浮微型卡片（Floating Preview Island）
