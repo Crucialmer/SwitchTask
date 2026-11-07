@@ -517,19 +517,35 @@ bool Widget::prepareListWidget() {
         return false;
     }
 
-    // 自适应：应用过多时压缩单元格与图标，保证整行容纳在屏幕宽度内（每次弹窗重算，数量回落自动复原）
-    // 基准：默认单元格 80 / 图标 64（四周 8px 边距）；压缩下限：单元格 48 / 图标 32
+    // 自适应：窗口过多时先压缩单元格，仍放不下就换行（每次弹窗重算，数量回落自动复原）。
+    // 原实现压到 48px 后直接夹取面板宽度，超出的条目被裁掉且没有滚动条——等于不可达。
     if (!winList.isEmpty()) {
-        constexpr int CELL_DEFAULT = 80, ICON_DEFAULT = 64, CELL_MIN = 48, ICON_MIN = 32;
+        constexpr int CELL_DEFAULT = 80, ICON_DEFAULT = 64, ICON_MIN = 32, CELL_FLOOR = 32;
         const int count = winList.size();
-        const int availableW = screen->availableGeometry().width() - ListWidgetMargin.left() - ListWidgetMargin.right() - 8; // 8px 余量
-        const int cell = qBound(CELL_MIN, availableW / count, CELL_DEFAULT);
+        const auto avail = screen->availableGeometry();
+        const int availableW = avail.width() - ListWidgetMargin.left() - ListWidgetMargin.right() - 8; // 8px 余量
+        // 留给列表的垂直空间：整屏扣掉舞台、标题与边距的大致开销（舞台按最大 190 计，偏保守）
+        const int chromeH = ListWidgetMargin.top() + 24 + 190 + kCellLabelGap + 40;
+        const int availableH = qMax(CELL_FLOOR, avail.height() - chromeH);
+
+        int cell = CELL_DEFAULT;
+        int perRow = qMax(1, availableW / cell);
+        int rows = (count + perRow - 1) / perRow;
+        while (rows * cell > availableH && cell > CELL_FLOOR) {
+            --cell;
+            perRow = qMax(1, availableW / cell);
+            rows = (count + perRow - 1) / perRow;
+        }
+
+        itemsPerRow = perRow;
         const int icon = qBound(ICON_MIN, cell - (CELL_DEFAULT - ICON_DEFAULT), ICON_DEFAULT);
         lw->setGridSize({cell, cell});
         lw->setIconSize({icon, icon});
-        lw->setFixedHeight(cell); // 列表高度 = 单元格高度（单行）
-        if (cell < CELL_DEFAULT)
-            qInfo() << "Adaptive icons:" << count << "apps -> cell" << cell << ", icon" << icon;
+        lw->setFixedHeight(rows * cell);
+        lw->setWrapping(rows > 1); // 单行时关闭换行，避免尺寸抖动导致意外折行
+        if (cell < CELL_DEFAULT || rows > 1)
+            qInfo() << "Adaptive layout:" << count << "windows -> rows" << rows << ", perRow" << perRow
+                    << ", cell" << cell << ", icon" << icon;
     }
 
     lw->setUpdatesEnabled(false); // 批量装配期间关闭视图重绘，消除每次 addItem 触发的多余布局计算与刷新开销
@@ -600,13 +616,12 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
 
     if (auto firstItem = lw->item(0)) {
         auto firstRect = lw->visualItemRect(firstItem);
-        auto width = lw->gridSize().width() * lw->count() + (firstRect.x() - lw->frameWidth());
-        // 宽度夹取：保证整行容纳在屏幕可用区内
+        // 宽度：按"每行条目数"而不是总条目数，多行时不会撑出屏幕
+        const int cols = itemsPerRow > 0 ? qMin(lw->count(), itemsPerRow) : lw->count();
+        auto width = lw->gridSize().width() * cols + (firstRect.x() - lw->frameWidth());
         const int maxListW = screen->availableGeometry().width() - ListWidgetMargin.left() - ListWidgetMargin.right();
         if (width > maxListW) {
-            const int hidden = lw->count() - qMax(1, maxListW / qMax(1, lw->gridSize().width()));
-            qWarning() << "Panel width clamped:" << width << "->" << maxListW
-                       << "; items" << lw->count() << "hidden ~" << hidden;
+            qWarning() << "Panel width clamped:" << width << "->" << maxListW;
             width = maxListW;
         }
         lw->setFixedWidth(width);
@@ -661,17 +676,21 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
             const int gapBelowText = ListWidgetMargin.top() + iconInset;
             constexpr int kBottomPadTrim = 6;
             const int bottomPad = qMax(0, gapBelowText - fm.descent() - kBottomPadTrim);
-            thisRect.setHeight(ListWidgetMargin.top() + stageHeightWithGap + lw->gridSize().height() + kCellLabelGap + fm.height() + bottomPad);
+            thisRect.setHeight(ListWidgetMargin.top() + stageHeightWithGap + lw->height() + kCellLabelGap + fm.height() + bottomPad);
         }
 
         thisRect.moveCenter(screen->geometry().center());
 
-        // 水平夹取：贴边而非出屏
+        // 贴边而非出屏：多行后面板会变高，垂直方向也要夹取
         const auto availGeo = screen->availableGeometry();
         if (thisRect.left() < availGeo.left())
             thisRect.moveLeft(availGeo.left());
         else if (thisRect.right() > availGeo.right())
             thisRect.moveRight(availGeo.right());
+        if (thisRect.top() < availGeo.top())
+            thisRect.moveTop(availGeo.top());
+        else if (thisRect.bottom() > availGeo.bottom())
+            thisRect.moveBottom(availGeo.bottom());
 
         this->setGeometry(thisRect);
 

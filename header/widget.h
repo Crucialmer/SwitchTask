@@ -102,6 +102,7 @@ private:
 private:
     Ui::Widget* ui;
     QListWidget* lw = nullptr;
+    int itemsPerRow = 0; // 当前布局的每行条目数（0 = 单行，由 prepareListWidget 计算）
     IconOnlyDelegate* iconDelegate = nullptr; // 列表 delegate（自绘选中/悬停底与图标）
     const QMargins ListWidgetMargin{24, 24, 24, 24}; // 左/上/右参与布局；bottom 为 marginsAdded 占位（底边距由“文字等距”规则动态计算，见 prepareListWidget）
     /// exePath -> (HWND, time)
