@@ -43,6 +43,7 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     ui->label->setTextFormat(Qt::PlainText); // 标题按纯文本渲染：防止窗口标题中的“伪 HTML”片段被富文本解析（省略号宽度按纯文本计算，两者保持一致）
     setWindowFlag(Qt::WindowStaysOnTopHint);
     setWindowFlag(Qt::FramelessWindowHint);
+    setWindowFlag(Qt::Tool); // 必须在 Qt 级别声明 Qt::Tool：使 Qt 内部及其 platform plugin 永久维护 WS_EX_TOOLWINDOW，不被 show() 时的 updateWindowFlags 覆盖重置
     setAttribute(Qt::WA_TranslucentBackground); //设置窗口背景透明 !但是会造成show()时的闪烁 和 绘制延迟(?)
     QtWin::taskbarDeleteTab(this); //删除任务栏图标
     setWindowTitle("SwitchTask");
@@ -238,7 +239,7 @@ void Widget::keyPressEvent(QKeyEvent* event) {
 
 bool Widget::forceShow() {
     // 优先采用无动画闪烁的焦点获取机制：
-    // 模拟空按键输入以获得 Windows 前台转移许可，避免 showMinimized/showNormal 触发 DWM 最小化恢复动画和闪烁
+    // 模拟空按键输入以获得 Windows 前台转移许可，杜绝 showMinimized/showNormal 触发 DWM 最小化恢复动画和闪烁
     INPUT input = {.type = INPUT_KEYBOARD};
     SendInput(1, &input, sizeof(INPUT));
 
@@ -248,12 +249,22 @@ bool Widget::forceShow() {
     raise();
     activateWindow();
 
-    // 仅当常规手段被拦截且依然未取得前台时，才做最小化-恢复的强攻兜底
+    // 严禁调用 showMinimized()/showNormal() 强刷焦点：
+    // 最小化会触发系统 DWM 广播并打断 Chromium DirectComposition 硬件视频交换链，导致 YouTube 播放器白屏/黑屏。
+    // 采用 AttachThreadInput 标准安全方案进行前台协同接管：
     if (!isForeground()) {
-        setWindowOpacity(0.005);
-        showMinimized();
-        showNormal();
-        setWindowOpacity(1);
+        HWND hFore = GetForegroundWindow();
+        DWORD foreThread = hFore ? GetWindowThreadProcessId(hFore, nullptr) : 0;
+        DWORD curThread = GetCurrentThreadId();
+        if (foreThread && foreThread != curThread) {
+            AttachThreadInput(curThread, foreThread, TRUE);
+            SetForegroundWindow(hWnd());
+            SetWindowPos(hWnd(), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            AttachThreadInput(curThread, foreThread, FALSE);
+        } else {
+            SetForegroundWindow(hWnd());
+            SetWindowPos(hWnd(), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+        }
     }
     startSelectionGrow(); // macOS 风格：弹出时选中项胶囊弹性登场
     updateThumbnailForCurrentItem();
@@ -1184,6 +1195,10 @@ void Widget::updateStageThumbnailProperties() {
     props.rcDestination = rcDest;
     props.opacity = 255;
     props.fVisible = TRUE;
+    if (srcSize.cx > 0 && srcSize.cy > 0) {
+        props.dwFlags |= DWM_TNP_RECTSOURCE;
+        props.rcSource = RECT{0, 0, srcSize.cx, srcSize.cy};
+    }
 
     DwmUpdateThumbnailProperties(stageThumbnail, &props);
 }

@@ -4,6 +4,30 @@
 
 ---
 
+## [v2.8] - 2026-11-07
+
+### 🚀 SwitchTask v2.8 — Win11 Chrome YouTube 视频预览彻底修复与设置面板美学高度自适应 (Win11 Chrome YouTube DirectComposition Fix & Settings Aesthetic Auto-Height)
+
+**SwitchTask** 正式发布 **v2.8** 版本！本次更新深入聚焦两大核心优化：
+1. **彻底攻克 Windows 11 下 Chrome / Chromium 浏览器播放 YouTube 视频时在任务切换缩略图中视频区域出现白块/无画面、未能实时播放的问题**；
+2. **重构设置面板（SettingsDialog）美学体验与动态自适应高度，完全消除滚轮滚动，所有设置卡片一眼舒展呈现**。
+
+#### 🌟 v2.8 核心修复与优化项
+1. **彻底攻关 Win11 Chrome YouTube 视频 DirectComposition 画面白屏问题**：
+   - **Qt 级别常驻 `Qt::Tool` 窗口标志，阻止样式被擦除**：在 Qt 6 下，仅在 Win32 HWND 上手动调用 `SetWindowLongPtr` 设置 `WS_EX_TOOLWINDOW` 会在 `QWidget::show()` 时被 Qt 底层平台插件 `QWindowsWindow::updateWindowFlags()` 依据 Qt 自带 flags 完全覆盖冲刷。v2.8 在 Qt 级别显式声明 `setWindowFlag(Qt::Tool)`，使 `WS_EX_TOOLWINDOW` 在所有显示、重绘与状态变更中终身常驻，确保 Chromium 内核的 `NativeWindowOcclusionTrackerWin` 始终将其判定为穿透型免遮挡工具视窗，永不停滞、永不卸载后台 YouTube 硬件加速 DirectComposition 交换链；
+   - **DWM 缩略图源矩形精准映射 (`DWM_TNP_RECTSOURCE`)**：Windows 11 DWM 在更新缩略图属性时，若未显式指定 `DWM_TNP_RECTSOURCE`，DWM 合成器默认采用回退启发式算法，极易将 DirectComposition 子视表面（硬件视频层）与基础 HTML DOM 错位，导致视频区域漏出底色白块。v2.8 在舞台集成模式与悬浮卡片模式中全面补齐 `DWM_TNP_RECTSOURCE` 源坐标精准绑定，确保视频图层 100% 映射呈现；
+   - **清除破坏性的 `showMinimized()` / `showNormal()` 焦点抢占逻辑**：移除了先前在 `forceShow()` 中未取得前台时调用的最小化兜底手段，杜绝 Windows DWM 下发最小化广播导致 Chrome 触发显存释放与视频交换链断开，全面升级为 Windows 官方推荐的 `AttachThreadInput` 协同线程焦点激活。
+
+2. **设置窗口（SettingsDialog）美学重构与动态高度自适应**：
+   - **消除滚轮滚动，全景自然呈现**：先前版本采用 520px 固定偏矮高度，导致标准屏幕下需要滚轮滚动才能看到全部 5 大设置卡片。v2.8 引入全新 `adjustDialogGeometry` 动态高度计算体系，根据卡片内容实际 `sizeHint` 自动撑开窗口高度（560~620px 黄金视觉比例），配合 500px 适度加宽，让开机启动、多屏偏好、外观主题、缩略图集成与高级配置 5 大卡片一次性自然收纳呈现，彻底免除滚轮操作；
+   - **自适应高分屏与小屏幕保护**：高度自动对比鼠标所在屏幕工作区 `availableGeometry()`，留出充足安全边距；在常规 1080p、2K、4K 屏幕上自适应展开无滚轮，在极小屏幕或超高 DPI 缩放下仍保留弹性平滑滚动保护；
+   - **遵循 macOS 26 细腻留白美学**：卡片内部文本垂直间距统一微调为 2px，主副标题紧凑呼应；卡片横纵边距比例精心重定，呈现纯正 macOS 系统设置面板质感。
+
+3. **标准便携分发**：
+   - 维持全集成极简发布规范，统一提供开箱即用的标准包 `SwitchTask.zip` 及 `SwitchTask.zip.sha256`。
+
+---
+
 ## [v2.7] - 2026-11-06
 
 ### 🚀 SwitchTask v2.7 — YouTube 与 Chromium 网页视频 DirectComposition 硬件视频层深度修复 (YouTube Video Overlay & DirectComposition Hardware Layer Fix)

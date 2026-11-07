@@ -21,8 +21,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     setAttribute(Qt::WA_StyledBackground, true);
     setAttribute(Qt::WA_DeleteOnClose);
     setObjectName("macWindowFrame");
-    setMinimumSize(460, 500);
-    resize(480, 520);
+    setMinimumSize(480, 520);
+    resize(500, 620);
     setWindowTitle("SwitchTask 设置");
 
     setupUi();
@@ -42,27 +42,27 @@ void SettingsDialog::setupUi() {
     m_titleBar = new MacTitleBar(QStringLiteral("SwitchTask 设置"), this);
     mainLayout->addWidget(m_titleBar);
 
-    // 2. 中部可平滑滚动卡片区域（即使在超高 DPI、大字号缩放或极小屏幕下也绝不压缩文字高度）
-    auto* scrollArea = new QScrollArea(this);
-    scrollArea->setObjectName("settingsScrollArea");
-    scrollArea->setWidgetResizable(true);
-    scrollArea->setFrameShape(QFrame::NoFrame);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    if (scrollArea->viewport()) {
-        scrollArea->viewport()->setAutoFillBackground(false);
+    // 2. 中部可平滑滚动卡片区域（动态高度自适应；在极小屏幕或极端 DPI 下保障弹性保护）
+    m_scrollArea = new QScrollArea(this);
+    m_scrollArea->setObjectName("settingsScrollArea");
+    m_scrollArea->setWidgetResizable(true);
+    m_scrollArea->setFrameShape(QFrame::NoFrame);
+    m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    if (m_scrollArea->viewport()) {
+        m_scrollArea->viewport()->setAutoFillBackground(false);
     }
 
-    auto* scrollContent = new QWidget(scrollArea);
-    scrollContent->setObjectName("settingsScrollContent");
-    scrollContent->setAttribute(Qt::WA_TranslucentBackground);
+    m_scrollContent = new QWidget(m_scrollArea);
+    m_scrollContent->setObjectName("settingsScrollContent");
+    m_scrollContent->setAttribute(Qt::WA_TranslucentBackground);
 
-    auto* contentLayout = new QVBoxLayout(scrollContent);
-    contentLayout->setContentsMargins(14, 10, 14, 10);
+    auto* contentLayout = new QVBoxLayout(m_scrollContent);
+    contentLayout->setContentsMargins(14, 8, 14, 8);
     contentLayout->setSpacing(8);
 
     // 顶部 Hero 品牌区域（40px 高清 Squircle 图标 + 品牌名 + 版本徽标 + 8K 副标题）
-    auto* heroWidget = new QWidget(scrollContent);
+    auto* heroWidget = new QWidget(m_scrollContent);
     auto* heroLayout = new QHBoxLayout(heroWidget);
     heroLayout->setContentsMargins(4, 2, 4, 4);
     heroLayout->setSpacing(12);
@@ -77,7 +77,7 @@ void SettingsDialog::setupUi() {
 
     auto* heroTextLayout = new QVBoxLayout();
     heroTextLayout->setContentsMargins(0, 0, 0, 0);
-    heroTextLayout->setSpacing(3);
+    heroTextLayout->setSpacing(2);
 
     auto* heroTitleRow = new QHBoxLayout();
     heroTitleRow->setContentsMargins(0, 0, 0, 0);
@@ -109,16 +109,16 @@ void SettingsDialog::setupUi() {
     contentLayout->addWidget(heroWidget);
 
     // 卡片 1：系统开机启动（带有 macOS 胶囊滑动开关 MacToggleSwitch）
-    auto* cardStartup = new QFrame(scrollContent);
+    auto* cardStartup = new QFrame(m_scrollContent);
     cardStartup->setObjectName("macCard");
     auto* layoutStartup = new QHBoxLayout(cardStartup);
-    layoutStartup->setContentsMargins(12, 9, 12, 9);
+    layoutStartup->setContentsMargins(12, 8, 12, 8);
     layoutStartup->setSpacing(10);
 
     auto* badgeStartup = new MacCategoryBadge(MacCategoryBadge::Rocket, QColor(0x00, 0x7A, 0xFF), cardStartup);
     auto* textStartupLayout = new QVBoxLayout();
     textStartupLayout->setContentsMargins(0, 0, 0, 0);
-    textStartupLayout->setSpacing(4);
+    textStartupLayout->setSpacing(2);
 
     auto* lblStartup = new QLabel(QStringLiteral("登录 Windows 时自动启动"), cardStartup);
     lblStartup->setObjectName("label_section");
@@ -137,11 +137,11 @@ void SettingsDialog::setupUi() {
     contentLayout->addWidget(cardStartup);
 
     // 卡片 2：显示器偏好（带有 macOS 原生分段选择器 MacSegmentedControl）
-    auto* cardMonitor = new QFrame(scrollContent);
+    auto* cardMonitor = new QFrame(m_scrollContent);
     cardMonitor->setObjectName("macCard");
     auto* layoutMonitor = new QVBoxLayout(cardMonitor);
-    layoutMonitor->setContentsMargins(12, 9, 12, 9);
-    layoutMonitor->setSpacing(8);
+    layoutMonitor->setContentsMargins(12, 8, 12, 8);
+    layoutMonitor->setSpacing(6);
 
     auto* headerMonitorRow = new QHBoxLayout();
     headerMonitorRow->setContentsMargins(0, 0, 0, 0);
@@ -150,7 +150,7 @@ void SettingsDialog::setupUi() {
     auto* badgeMonitor = new MacCategoryBadge(MacCategoryBadge::Monitor, QColor(0x58, 0x56, 0xD6), cardMonitor);
     auto* textMonitorLayout = new QVBoxLayout();
     textMonitorLayout->setContentsMargins(0, 0, 0, 0);
-    textMonitorLayout->setSpacing(4);
+    textMonitorLayout->setSpacing(2);
 
     auto* lblMonitor = new QLabel(QStringLiteral("切换器呼出显示器偏好"), cardMonitor);
     lblMonitor->setObjectName("label_section");
@@ -173,11 +173,11 @@ void SettingsDialog::setupUi() {
     contentLayout->addWidget(cardMonitor);
 
     // 卡片 3：外观主题（带有 macOS 原生分段选择器 MacSegmentedControl）
-    auto* cardTheme = new QFrame(scrollContent);
+    auto* cardTheme = new QFrame(m_scrollContent);
     cardTheme->setObjectName("macCard");
     auto* layoutTheme = new QVBoxLayout(cardTheme);
-    layoutTheme->setContentsMargins(12, 9, 12, 9);
-    layoutTheme->setSpacing(8);
+    layoutTheme->setContentsMargins(12, 8, 12, 8);
+    layoutTheme->setSpacing(6);
 
     auto* headerThemeRow = new QHBoxLayout();
     headerThemeRow->setContentsMargins(0, 0, 0, 0);
@@ -186,7 +186,7 @@ void SettingsDialog::setupUi() {
     auto* badgeTheme = new MacCategoryBadge(MacCategoryBadge::Palette, QColor(0xFF, 0x95, 0x00), cardTheme);
     auto* textThemeLayout = new QVBoxLayout();
     textThemeLayout->setContentsMargins(0, 0, 0, 0);
-    textThemeLayout->setSpacing(4);
+    textThemeLayout->setSpacing(2);
 
     auto* lblTheme = new QLabel(QStringLiteral("界面外观主题"), cardTheme);
     lblTheme->setObjectName("label_section");
@@ -210,11 +210,11 @@ void SettingsDialog::setupUi() {
     contentLayout->addWidget(cardTheme);
 
     // 卡片 3.5：实时窗口缩略图预览（带有 macOS 原生分段选择器 MacSegmentedControl）
-    auto* cardThumb = new QFrame(scrollContent);
+    auto* cardThumb = new QFrame(m_scrollContent);
     cardThumb->setObjectName("macCard");
     auto* layoutThumb = new QVBoxLayout(cardThumb);
-    layoutThumb->setContentsMargins(12, 9, 12, 9);
-    layoutThumb->setSpacing(8);
+    layoutThumb->setContentsMargins(12, 8, 12, 8);
+    layoutThumb->setSpacing(6);
 
     auto* headerThumbRow = new QHBoxLayout();
     headerThumbRow->setContentsMargins(0, 0, 0, 0);
@@ -223,7 +223,7 @@ void SettingsDialog::setupUi() {
     auto* badgeThumb = new MacCategoryBadge(MacCategoryBadge::Window, QColor(0x32, 0xAD, 0xE6), cardThumb);
     auto* textThumbLayout = new QVBoxLayout();
     textThumbLayout->setContentsMargins(0, 0, 0, 0);
-    textThumbLayout->setSpacing(4);
+    textThumbLayout->setSpacing(2);
 
     auto* lblThumb = new QLabel(QStringLiteral("实时窗口缩略图预览"), cardThumb);
     lblThumb->setObjectName("label_section");
@@ -247,16 +247,16 @@ void SettingsDialog::setupUi() {
     contentLayout->addWidget(cardThumb);
 
     // 卡片 4：高级配置管理
-    auto* cardConfig = new QFrame(scrollContent);
+    auto* cardConfig = new QFrame(m_scrollContent);
     cardConfig->setObjectName("macCard");
     auto* layoutConfig = new QHBoxLayout(cardConfig);
-    layoutConfig->setContentsMargins(12, 9, 12, 9);
+    layoutConfig->setContentsMargins(12, 8, 12, 8);
     layoutConfig->setSpacing(10);
 
     auto* badgeConfig = new MacCategoryBadge(MacCategoryBadge::Gear, QColor(0x8E, 0x8E, 0x93), cardConfig);
     auto* textConfigLayout = new QVBoxLayout();
     textConfigLayout->setContentsMargins(0, 0, 0, 0);
-    textConfigLayout->setSpacing(4);
+    textConfigLayout->setSpacing(2);
 
     auto* lblConfig = new QLabel(QStringLiteral("高级自定义配置 (config.ini)"), cardConfig);
     lblConfig->setObjectName("label_section");
@@ -276,26 +276,26 @@ void SettingsDialog::setupUi() {
     contentLayout->addWidget(cardConfig);
 
     contentLayout->addStretch();
-    scrollArea->setWidget(scrollContent);
-    mainLayout->addWidget(scrollArea, 1);
+    m_scrollArea->setWidget(m_scrollContent);
+    mainLayout->addWidget(m_scrollArea, 1);
 
     // 3. 底部固定控制按钮行
-    auto* bottomBar = new QWidget(this);
-    bottomBar->setObjectName("settingsBottomBar");
-    auto* bottomRow = new QHBoxLayout(bottomBar);
-    bottomRow->setContentsMargins(14, 8, 14, 10);
+    m_bottomBar = new QWidget(this);
+    m_bottomBar->setObjectName("settingsBottomBar");
+    auto* bottomRow = new QHBoxLayout(m_bottomBar);
+    bottomRow->setContentsMargins(14, 6, 14, 10);
     bottomRow->setSpacing(10);
 
-    m_checkUpdateBtn = new QPushButton(QStringLiteral("检查更新..."), bottomBar);
+    m_checkUpdateBtn = new QPushButton(QStringLiteral("检查更新..."), m_bottomBar);
     m_checkUpdateBtn->setObjectName("btn_recheck");
-    m_doneBtn = new QPushButton(QStringLiteral("完成"), bottomBar);
+    m_doneBtn = new QPushButton(QStringLiteral("完成"), m_bottomBar);
     m_doneBtn->setObjectName("btn_done");
 
     bottomRow->addWidget(m_checkUpdateBtn);
     bottomRow->addStretch();
     bottomRow->addWidget(m_doneBtn);
 
-    mainLayout->addWidget(bottomBar, 0);
+    mainLayout->addWidget(m_bottomBar, 0);
 
     // 交互逻辑绑定
     connect(m_startupSwitch, &MacToggleSwitch::toggled, this, [](bool checked) {
@@ -330,6 +330,31 @@ void SettingsDialog::setupUi() {
     });
 
     connect(m_doneBtn, &QPushButton::clicked, this, &QDialog::close);
+}
+
+void SettingsDialog::adjustDialogGeometry() {
+    if (!m_scrollContent || !m_titleBar) return;
+
+    // 确保内部布局完成最新尺寸计算
+    m_scrollContent->adjustSize();
+    if (layout()) layout()->activate();
+
+    const int contentH = m_scrollContent->sizeHint().height();
+    const int titleH = m_titleBar->sizeHint().height();
+    const int bottomH = m_bottomBar ? m_bottomBar->sizeHint().height() : 48;
+    const int desiredH = titleH + contentH + bottomH + 4; // 包含边框与微量留白
+
+    QScreen* screen = (CFG.getDisplayMonitor() == PrimaryMonitor)
+        ? QGuiApplication::primaryScreen()
+        : QGuiApplication::screenAt(QCursor::pos());
+    if (!screen) screen = QGuiApplication::primaryScreen();
+
+    const QRect avail = screen ? screen->availableGeometry() : QRect(0, 0, 1920, 1080);
+    // 留出上下各 32px 的安全边距，避免超出屏幕边缘
+    const int maxH = qMax(400, avail.height() - 64);
+    const int targetH = qBound(540, desiredH, maxH);
+
+    resize(500, targetH);
 }
 
 void SettingsDialog::applyTheme() {
@@ -367,6 +392,9 @@ void SettingsDialog::showEvent(QShowEvent* event) {
         m_themeSeg->setCurrentIndex(themeIdx, false);
         m_thumbnailSeg->setCurrentIndex(static_cast<int>(CFG.getThumbnailMode()), false);
     }
+
+    // 视觉美学自适应计算窗口高度，消除滚轮滚动
+    adjustDialogGeometry();
 
     // 自动定位至屏幕工作区右下角
     MacTitleBar::positionBottomRight(this, 24);

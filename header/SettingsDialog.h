@@ -11,6 +11,7 @@
 class MacTitleBar;
 class MacToggleSwitch;
 class MacSegmentedControl;
+class QScrollArea;
 
 /// macOS 26 风格独立设置窗口：贴靠右下角托盘区，圆角磨砂通透质感，8K 超清感知
 class SettingsDialog : public QDialog {
@@ -28,8 +29,12 @@ protected:
 
 private:
     void setupUi();
+    void adjustDialogGeometry();
 
     MacTitleBar* m_titleBar = nullptr;
+    QScrollArea* m_scrollArea = nullptr;
+    QWidget* m_scrollContent = nullptr;
+    QWidget* m_bottomBar = nullptr;
     MacToggleSwitch* m_startupSwitch = nullptr;
     MacSegmentedControl* m_monitorSeg = nullptr;
     MacSegmentedControl* m_themeSeg = nullptr;

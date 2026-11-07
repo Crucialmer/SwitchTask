@@ -184,6 +184,10 @@ void ThumbnailPopupWidget::updateThumbnailProperties() {
     props.rcDestination = rcDest;
     props.opacity = 255;
     props.fVisible = TRUE;
+    if (srcSize.cx > 0 && srcSize.cy > 0) {
+        props.dwFlags |= DWM_TNP_RECTSOURCE;
+        props.rcSource = RECT{0, 0, srcSize.cx, srcSize.cy};
+    }
 
     DwmUpdateThumbnailProperties(m_hThumbnail, &props);
 }
