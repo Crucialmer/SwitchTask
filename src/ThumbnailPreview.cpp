@@ -106,6 +106,19 @@ void ThumbnailPopupWidget::showForWindow(HWND targetHwnd, const QRect& iconGloba
         HRESULT hr = DwmRegisterThumbnail(hWnd(), m_targetHwnd, &m_hThumbnail);
         qInfo() << "Popup DwmRegisterThumbnail:" << Qt::hex << hr << "dest:" << hWnd() << "src:" << m_targetHwnd;
         Util::nudgeWindowRendering(m_targetHwnd);
+        // 50ms 与 120ms 两次微脉冲刷新：等待后台 Chromium 收到 un-occluded 信号并完成首帧解码输出
+        QTimer::singleShot(50, this, [this, hwnd = m_targetHwnd] {
+            if (m_targetHwnd == hwnd && m_hThumbnail) {
+                Util::nudgeWindowRendering(hwnd);
+                updateThumbnailProperties();
+            }
+        });
+        QTimer::singleShot(120, this, [this, hwnd = m_targetHwnd] {
+            if (m_targetHwnd == hwnd && m_hThumbnail) {
+                Util::nudgeWindowRendering(hwnd);
+                updateThumbnailProperties();
+            }
+        });
     }
 
     updateThumbnailProperties();
@@ -123,6 +136,18 @@ void ThumbnailPopupWidget::setTargetWindow(HWND targetHwnd) {
             HRESULT hr = DwmRegisterThumbnail(hWnd(), m_targetHwnd, &m_hThumbnail);
             qInfo() << "Popup DwmRegisterThumbnail:" << Qt::hex << hr << "dest:" << hWnd() << "src:" << m_targetHwnd;
             Util::nudgeWindowRendering(m_targetHwnd);
+            QTimer::singleShot(50, this, [this, hwnd = m_targetHwnd] {
+                if (m_targetHwnd == hwnd && m_hThumbnail) {
+                    Util::nudgeWindowRendering(hwnd);
+                    updateThumbnailProperties();
+                }
+            });
+            QTimer::singleShot(120, this, [this, hwnd = m_targetHwnd] {
+                if (m_targetHwnd == hwnd && m_hThumbnail) {
+                    Util::nudgeWindowRendering(hwnd);
+                    updateThumbnailProperties();
+                }
+            });
             updateThumbnailProperties();
         }
         update();

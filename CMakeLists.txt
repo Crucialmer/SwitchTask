@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(SwitchTask VERSION 2.8.0) # SwitchTask v2.8 版本
+project(SwitchTask VERSION 2.9.0) # SwitchTask v2.9 版本
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

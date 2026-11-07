@@ -4,6 +4,27 @@
 
 ---
 
+## [v2.9] - 2026-11-07
+
+### 🚀 SwitchTask v2.9 — 全屏应用下网页视频缩略图黑框破局与 Z 序穿透唤醒 (Fullscreen Occlusion Penetration & Real-Time Video Preview Fix)
+
+**SwitchTask** 正式发布 **v2.9** 版本！本版本专门彻底攻克：**在全屏应用（全屏游戏、全屏播放器、浏览器 F11 等）中呼出 SwitchTask 切换到视频网页时，窗口缩略图中视频播放部分出现黑色方框、无实时视频画面的顽疾**。
+
+#### 🌟 v2.9 核心修复与优化项
+1. **全屏遮挡与 Chromium OCCLUDED 状态深度破局 (`applyPeekingZOrder`)**：
+   - **根本成因透析**：当用户身处全屏应用中时，该全屏窗口（通常具备 `WS_EX_TOPMOST` 或覆盖整块屏幕）在 Windows Z 序中将后台浏览器（如 Chrome / Edge）100% 遮盖。Chromium 的原生遮挡检测器 `NativeWindowOcclusionTrackerWin` 评估发现可视区域为 0，自动将网页置于 `OCCLUDED` 节电休眠态，其内核 `WebMediaPlayerImpl` 随即暂停向 DirectComposition 交换链提交视频解码帧。DWM 捕获时，DOM 原生黑色底板漏出，导致缩略图视频区域呈现为一个死黑方框且无画面；
+   - **动态 Z 序安全穿透与置顶透视**：SwitchTask 引入全新的临时透视 Z 序管线（`applyPeekingZOrder`）。在切换选中目标窗口瞬间，利用 `SWP_NOACTIVATE`（零焦点抢占、不改变当前输入焦点）将其临时置顶至仅次于 SwitchTask 的 Z 序位置，瞬间打破全屏应用的物理遮挡，使 Chromium 立即侦测到 `VISIBLE` 可见态，光速唤醒 `WebMediaPlayerImpl` 与硬件视频交换链，使视频在缩略图中以 60fps 实时流畅播放，黑框彻底消散；
+   - **零污染回滚机制 (`restorePeekingZOrder`)**：切换离开、按 Esc 取消或关闭 SwitchTask 时，自动将临时提升的窗口安全退回原本的非 Topmost 与相对 Z 序，确保全屏应用或原有桌面层级 100% 原样恢复；若用户最终敲击 Enter / 释放 Alt 确认切换，则平滑交接给常规激活管线。
+
+2. **D3D/渲染视口子窗口深度脉冲唤醒**：
+   - 升级 `Util::nudgeWindowRendering` 管线，利用 `EnumChildWindows` 同步遍历唤醒 Chromium 内部的 DirectComposition/D3D 子窗口（如 `Intermediate D3D Window`），确保后台 GPU/viz 消息循环瞬时响应；
+   - 在舞台模式与悬浮模式中新增 50ms 与 120ms 两级微脉冲同步，保障从遮挡解除到首帧解码的无缝衔接。
+
+3. **标准便携分发**：
+   - 维持全集成极简发布规范，统一提供开箱即用的标准包 `SwitchTask.zip` 及 `SwitchTask.zip.sha256`。
+
+---
+
 ## [v2.8] - 2026-11-07
 
 ### 🚀 SwitchTask v2.8 — Win11 Chrome YouTube 视频预览彻底修复与设置面板美学高度自适应 (Win11 Chrome YouTube DirectComposition Fix & Settings Aesthetic Auto-Height)

@@ -954,5 +954,10 @@ namespace Util {
         // 绝不可调用 RedrawWindow(RDW_INTERNALPAINT)，否则会强制下发 GDI WM_PAINT 重绘，
         // 导致网页 DOM 的底层白色背景冲刷破坏 Chromium/DirectComposition 硬件视频交换链，造成 YouTube 播放区白屏。
         PostMessageW(hwnd, WM_NULL, 0, 0);
+        // 同步唤醒 Chromium 内部的 DirectComposition/D3D 子渲染视口（如 Intermediate D3D Window），促使交换链提交新帧
+        EnumChildWindows(hwnd, [](HWND child, LPARAM) -> BOOL {
+            PostMessageW(child, WM_NULL, 0, 0);
+            return TRUE;
+        }, 0);
     }
 } // Util
