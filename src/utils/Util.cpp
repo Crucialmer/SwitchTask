@@ -890,37 +890,72 @@ namespace Util {
         if (!hwnd || !IsWindow(hwnd) || IsIconic(hwnd) || !IsWindowVisible(hwnd))
             return false;
 
+        // 必须用 DWM 的"可见边界"：GetWindowRect 含 Win10/11 的不可见边框与阴影，
+        // 贴边采样会落到窗口后面的桌面/别的窗口上，把可见窗口误判成被遮挡
         RECT rc{};
-        if (!GetWindowRect(hwnd, &rc))
-            return false;
-        const int w = rc.right - rc.left, h = rc.bottom - rc.top;
-        if (w < 8 || h < 8)
-            return false;
-
-        // 采样点避开边框（有些窗口的 4px 边框是透明的）：四点 + 中心
-        const POINT samples[5] = {
-            {rc.left + 4,     rc.top + 4},
-            {rc.right - 4,    rc.top + 4},
-            {rc.left + 4,     rc.bottom - 4},
-            {rc.right - 4,    rc.bottom - 4},
-            {rc.left + w / 2, rc.top + h / 2},
-        };
-
-        // 与 Chromium 的规则对齐：自己的工具窗、透明/点击穿透窗口都不算遮挡物，
-        // 否则切换器面板压住一角时会被误判成"整个窗口被遮挡"
-        const DWORD myPid = GetCurrentProcessId();
-        for (const auto& p : samples) {
-            HWND hit = GetAncestor(WindowFromPoint(p), GA_ROOT);
-            if (!hit || hit == hwnd)
-                return false; // 该点仍能看到目标窗口
-            DWORD pid = 0;
-            GetWindowThreadProcessId(hit, &pid);
-            if (pid == myPid)
-                continue;
-            if (GetWindowLongPtr(hit, GWL_EXSTYLE) & (WS_EX_LAYERED | WS_EX_TRANSPARENT))
-                continue;
+        if (FAILED(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &rc, sizeof(rc)))) {
+            if (!GetWindowRect(hwnd, &rc))
+                return false;
         }
-        return true;
+        const int w = rc.right - rc.left, h = rc.bottom - rc.top;
+        if (w < 48 || h < 48)
+            return false;
+
+        // 九宫格，向内缩 10%：避开圆角、阴影与透明边框
+        const int ix = qMax(8, w / 10), iy = qMax(8, h / 10);
+        const int xs[3] = {rc.left + ix, rc.left + w / 2, rc.right - ix};
+        const int ys[3] = {rc.top + iy, rc.top + h / 2, rc.bottom - iy};
+
+        const DWORD myPid = GetCurrentProcessId();
+        int foreign = 0;
+        for (int y : ys) {
+            for (int x : xs) {
+                POINT pt{x, y};
+                HWND hit = GetAncestor(WindowFromPoint(pt), GA_ROOT);
+                if (!hit || hit == hwnd)
+                    return false; // 任意一点还看得到目标：未被完全遮挡
+
+                DWORD pid = 0;
+                GetWindowThreadProcessId(hit, &pid);
+                if (pid == myPid)
+                    continue; // 自己的面板/胶囊不算遮挡物（Chromium 同样忽略工具窗）
+                if (GetWindow(hit, GW_OWNER) == hwnd)
+                    continue; // 目标自己的弹窗（下拉框、提示框）
+                if (GetWindowLongPtr(hit, GWL_EXSTYLE) & (WS_EX_LAYERED | WS_EX_TRANSPARENT))
+                    continue; // 透明/点击穿透窗口不构成遮挡
+                ++foreign;
+            }
+        }
+        // 只有"多数采样点确实被外部窗口覆盖"才算遮挡：
+        // 小窗口整个躲在切换器面板后面时（全部命中自己）必须返回 false，否则就是误报
+        return foreign >= 5;
+    }
+
+    bool isWindowOcclusionSensitive(HWND hwnd, const QString& knownExePath) {
+        if (!hwnd || !IsWindow(hwnd))
+            return false;
+
+        // 窗口类是最稳的判据：Chrome / Edge / Brave / Vivaldi / Opera / Electron 都是
+        // Chrome_WidgetWin_1，Firefox 是 MozillaWindowClass
+        const auto className = getClassName(hwnd);
+        static const QStringList kSensitiveClasses = {
+            QStringLiteral("Chrome_WidgetWin_1"),
+            QStringLiteral("Chrome_WidgetWin_0"),
+            QStringLiteral("MozillaWindowClass"),
+        };
+        if (kSensitiveClasses.contains(className))
+            return true;
+
+        // 兜底：个别打包方式会换类名，按进程名再判一次
+        if (knownExePath.isEmpty())
+            return false;
+        static const QStringList kSensitiveExes = {
+            QStringLiteral("chrome.exe"), QStringLiteral("msedge.exe"),
+            QStringLiteral("brave.exe"), QStringLiteral("vivaldi.exe"),
+            QStringLiteral("opera.exe"), QStringLiteral("chromium.exe"),
+            QStringLiteral("firefox.exe"),
+        };
+        return kSensitiveExes.contains(QFileInfo(knownExePath).fileName().toLower());
     }
 
     bool isTaskbarWindow(HWND hwnd) {

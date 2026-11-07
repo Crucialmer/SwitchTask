@@ -15,6 +15,10 @@
 - **WinEvent 兜底重试短路**：已显示时只 `forceShow()`，不再重复枚举/重建/重注册缩略图。
 - **Release 关闭 qDebug**：定义 `QT_NO_DEBUG_OUTPUT`（`qInfo` / `qWarning` 保留）。
 
+### 批次 2 修复 1（实测反馈）
+
+- **遮挡提示误报**：文件管理器等窗口也会弹出「被遮挡」。两个原因：① 4px 贴边采样落在 Win10/11 的 `GetWindowRect` 不可见边框里，命中的是后面的窗口；② Explorer 这类非 Chromium 窗口即使被完全盖住，DWM 缩略图本来就在实时更新，提示对它没有意义。
+- **修法**：提示只对 `Chrome_WidgetWin_1 / MozillaWindowClass`（Chromium / Gecko，含 Electron）开放；几何判定改用 `DWMWA_EXTENDED_FRAME_BOUNDS` + 内缩 10% 的九宫格，任一点仍能看到目标即判未遮挡，且要求至少 5/9 个采样点被**外部窗口**覆盖（自己的面板不再计入遮挡）。
 ### 批次 2：缩略图遮挡链路（4 项）
 
 - **遮挡检测** `Util::isWindowFullyCovered`：四角 + 中心采样，跳过本进程工具窗与透明覆盖物（与 Chromium 判定规则对齐）。
