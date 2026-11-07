@@ -131,19 +131,12 @@ private:
     QRect stageRect;
     void updateStageThumbnailProperties();
 
-    // 实时缩略图动态心跳与视频/全屏唤醒机制
+    // 实时缩略图动态心跳与视频唤醒机制
     QTimer* thumbnailHeartbeatTimer = nullptr;
     int thumbnailSyncPulseCount = 0;
     void startThumbnailHeartbeat();
     void stopThumbnailHeartbeat();
     void onThumbnailHeartbeat();
-
-    // 全屏应用覆盖下的后台窗口 Z 序解除遮挡机制（防止 Chromium 判定 OCCLUDED 导致视频渲染黑框）
-    HWND m_peekingTargetHwnd = nullptr;
-    bool m_peekingTargetWasTopmost = false;
-    HWND m_peekingTargetPrevHwnd = nullptr;
-    void applyPeekingZOrder(HWND targetHwnd);
-    void restorePeekingZOrder();
 };
 
 #endif //WIN_SWITCHER_WIDGET_H

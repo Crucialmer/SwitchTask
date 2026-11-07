@@ -765,11 +765,6 @@ void Widget::closeWindowItem(QListWidgetItem* item) {
     if (lw->row(item) < 0) return; // 防御：条目已移除（兜底路径与过滤器竞态时不重复处理）
     auto info = item->data(Qt::UserRole).value<WindowInfo>();
     if (info.hwnd) {
-        if (m_peekingTargetHwnd == info.hwnd) {
-            m_peekingTargetHwnd = nullptr;
-            m_peekingTargetWasTopmost = false;
-            m_peekingTargetPrevHwnd = nullptr;
-        }
         qInfo() << "Middle-click close ->" << info;
         PostMessage(info.hwnd, WM_CLOSE, 0, 0); // 优雅关闭请求：应用可正常弹保存确认；对更高权限窗口可能被系统拦截
     }
@@ -794,17 +789,6 @@ void Widget::switchToCurrentItem() {
     if (auto item = lw->currentItem()) {
         auto info = item->data(Qt::UserRole).value<WindowInfo>();
         if (info.hwnd) {
-            if (m_peekingTargetHwnd == info.hwnd) {
-                // 如果即将切换到该窗口，先剥离其临时 Topmost（若原本并非 Topmost）
-                // 然后交给 switchToWindow 处理正规前台转移
-                if (!m_peekingTargetWasTopmost) {
-                    SetWindowPos(m_peekingTargetHwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
-                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-                }
-                m_peekingTargetHwnd = nullptr;
-                m_peekingTargetWasTopmost = false;
-                m_peekingTargetPrevHwnd = nullptr;
-            }
             Util::switchToWindow(info.hwnd);
             qInfo() << "Switch to" << info;
         }
@@ -1132,9 +1116,6 @@ void Widget::updateThumbnailForCurrentItem() {
         return;
     }
 
-    // 核心破局：解决全屏应用遮挡后台视频窗口导致的 Chromium OCCLUDED 判定与 DirectComposition 黑框
-    applyPeekingZOrder(info.hwnd);
-
     if (mode == ThumbnailPopup) {
         if (stageThumbnail) {
             DwmUnregisterThumbnail(stageThumbnail);
@@ -1237,7 +1218,6 @@ void Widget::updateStageThumbnailProperties() {
 
 void Widget::hideThumbnails() {
     stopThumbnailHeartbeat();
-    restorePeekingZOrder();
     if (popupWidget) popupWidget->hidePopup();
     if (stageThumbnail) {
         DwmUnregisterThumbnail(stageThumbnail);
@@ -1276,55 +1256,4 @@ void Widget::onThumbnailHeartbeat() {
             popupWidget->heartbeatRefresh();
         }
     }
-}
-
-void Widget::applyPeekingZOrder(HWND targetHwnd) {
-    if (!targetHwnd || !IsWindow(targetHwnd) || IsIconic(targetHwnd)) return;
-    if (targetHwnd == hWnd()) return;
-    if (popupWidget && targetHwnd == (HWND)popupWidget->winId()) return;
-
-    if (m_peekingTargetHwnd == targetHwnd) return;
-
-    restorePeekingZOrder();
-
-    m_peekingTargetHwnd = targetHwnd;
-    m_peekingTargetWasTopmost = (GetWindowLongPtr(targetHwnd, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
-    m_peekingTargetPrevHwnd = GetWindow(targetHwnd, GW_HWNDPREV);
-
-    // 核心破局：解决在全屏应用（游戏、播放器、F11全屏等）中弹出 SwitchTask 时，
-    // 后台 Chrome / Chromium 浏览器被全屏窗口 100% 遮挡，导致其 NativeWindowOcclusionTrackerWin 判定为 OCCLUDED，
-    // 进而暂停 DirectComposition 硬件视频交换链帧提交（出现视频黑框、不实时播放）的问题。
-    // 将目标预览窗口提升到仅次于 SwitchTask 的 Z 序位置（SWP_NOACTIVATE 确保零焦点抢占）：
-    SetWindowPos(targetHwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-
-    // 保持 SwitchTask 本身在最顶层
-    SetWindowPos(hWnd(), HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-
-    if (popupWidget && popupWidget->isVisible()) {
-        SetWindowPos((HWND)popupWidget->winId(), HWND_TOPMOST, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-    }
-}
-
-void Widget::restorePeekingZOrder() {
-    if (m_peekingTargetHwnd && IsWindow(m_peekingTargetHwnd)) {
-        if (!m_peekingTargetWasTopmost) {
-            // 原本是非 Topmost 窗口：剥离临时赋予的 Topmost 属性，放回 HWND_NOTOPMOST
-            SetWindowPos(m_peekingTargetHwnd,
-                         HWND_NOTOPMOST,
-                         0, 0, 0, 0,
-                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            if (m_peekingTargetPrevHwnd && IsWindow(m_peekingTargetPrevHwnd)) {
-                SetWindowPos(m_peekingTargetHwnd,
-                             m_peekingTargetPrevHwnd,
-                             0, 0, 0, 0,
-                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-            }
-        }
-    }
-    m_peekingTargetHwnd = nullptr;
-    m_peekingTargetWasTopmost = false;
-    m_peekingTargetPrevHwnd = nullptr;
 }
