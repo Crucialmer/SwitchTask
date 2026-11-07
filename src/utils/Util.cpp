@@ -950,7 +950,9 @@ namespace Util {
     }
     void nudgeWindowRendering(HWND hwnd) {
         if (!hwnd || !IsWindow(hwnd) || IsIconic(hwnd)) return;
-        SendMessageTimeoutW(hwnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 20, nullptr);
-        RedrawWindow(hwnd, nullptr, nullptr, RDW_INTERNALPAINT | RDW_ALLCHILDREN);
+        // 投递轻量 WM_NULL 唤醒目标窗口消息队列（若处于 GetMessage 挂起态）。
+        // 绝不可调用 RedrawWindow(RDW_INTERNALPAINT)，否则会强制下发 GDI WM_PAINT 重绘，
+        // 导致网页 DOM 的底层白色背景冲刷破坏 Chromium/DirectComposition 硬件视频交换链，造成 YouTube 播放区白屏。
+        PostMessageW(hwnd, WM_NULL, 0, 0);
     }
 } // Util

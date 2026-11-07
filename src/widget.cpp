@@ -47,7 +47,14 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     QtWin::taskbarDeleteTab(this); //删除任务栏图标
     setWindowTitle("SwitchTask");
 
-    Util::setWindowRoundCorner(this->hWnd()); // 设置窗口圆角
+    HWND hwnd = this->hWnd();
+    if (hwnd) {
+        // 设置 WS_EX_TOOLWINDOW：使 Chromium 的 NativeWindowOcclusionTrackerWin 自动将其识别为免遮挡工具视窗，
+        // 彻底杜绝 SwitchTask 弹出时 Chromium 将后台窗口误判为全遮挡（Occluded）而卸载/挂起硬件视频 DirectComposition 交换链
+        LONG_PTR exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
+        SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle | WS_EX_TOOLWINDOW);
+        Util::setWindowRoundCorner(hwnd); // 设置窗口圆角
+    }
     // 窗口材质（磨砂模糊）统一在 applyTheme() 内应用（须配合 WA_TranslucentBackground；见下）
 
     setupLabelFont();
@@ -1214,15 +1221,6 @@ void Widget::onThumbnailHeartbeat() {
     if (cachedThumbMode == ThumbnailIntegrated) {
         if (stageThumbnail && stageTargetHwnd && IsWindow(stageTargetHwnd) && !IsIconic(stageTargetHwnd)) {
             Util::nudgeWindowRendering(stageTargetHwnd);
-            // 第 2 次心跳（~120ms）时进行一次微脉冲同步，让 Chrome 从 MPO 切换回 DirectComposition 后的重定向纹理强制与 DWM 重新绑定
-            if (thumbnailSyncPulseCount == 2) {
-                DWM_THUMBNAIL_PROPERTIES syncProps = {};
-                syncProps.dwFlags = DWM_TNP_VISIBLE;
-                syncProps.fVisible = FALSE;
-                DwmUpdateThumbnailProperties(stageThumbnail, &syncProps);
-                syncProps.fVisible = TRUE;
-                DwmUpdateThumbnailProperties(stageThumbnail, &syncProps);
-            }
             updateStageThumbnailProperties();
         }
     } else if (cachedThumbMode == ThumbnailPopup) {

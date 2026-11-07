@@ -4,6 +4,29 @@
 
 ---
 
+## [v2.7] - 2026-11-06
+
+### 🚀 SwitchTask v2.7 — YouTube 与 Chromium 网页视频 DirectComposition 硬件视频层深度修复 (YouTube Video Overlay & DirectComposition Hardware Layer Fix)
+
+**SwitchTask** 正式发布 **v2.7** 版本！专门针对 Chrome / Edge 等 Chromium 浏览器在 YouTube 等网站播放视频时，切换界面中视频播放区域出现白色方块/无画面、未能实时播放的问题，进行了底层渲染调用与 Windows 遮挡穿透属性的深度根因修复。
+
+#### 🌟 v2.7 核心修复与优化项
+1. **根治 YouTube 网页视频播放区白块/白屏顽疾**：
+   - **移除破坏性的 GDI 强制重绘**：深入排查发现，Chromium 浏览器的 HTML5 硬件加速视频（DirectComposition / MediaFoundation）与 Windows 传统 Win32 GDI 消息管线相互解耦。先前调用 `RedrawWindow(RDW_INTERNALPAINT)` 会强行派发 GDI `WM_PAINT`，导致网页 DOM 容器的底层白色背景画刷反复冲刷覆盖在 DirectComposition 视频表面上，从而导致 YouTube 播放区呈现纯白长方形；
+   - **切换为零侵入轻量唤醒**：全面改用非阻塞空消息（`PostMessageW(hwnd, WM_NULL, 0, 0)`），仅在消息循环休眠时轻量唤醒，杜绝任何 GDI 冲刷破坏，让 Chromium 硬件视频呈现层不受干扰地实时输出。
+
+2. **注入 `WS_EX_TOOLWINDOW` 穿透属性，防止 Chromium 误判全遮挡**：
+   - 在 SwitchTask 主窗口初始化时显式赋予 `WS_EX_TOOLWINDOW` 样式；
+   - Chromium 内核的 `NativeWindowOcclusionTrackerWin` 原生遮挡检测逻辑中，对携带 `WS_EX_TOOLWINDOW` 的工具视窗执行自动过滤与穿透判定。由此彻底杜绝 SwitchTask 弹出时 Chromium 将后台 Chrome 误判为“全遮挡（Occluded）”而主动暂停并卸载硬件视频渲染层的问题。
+
+3. **净化 DWM 缩略图心跳管线**：
+   - 移除不必要的 `fVisible` 瞬时开关脉冲，直接由 DWM 硬件管线连续渲染，保障视频流在舞台面板与悬浮视窗中真正达到 60fps 丝滑实时同步。
+
+4. **标准化便携发布**：
+   - 保持极简分发结构，统一以标准全能包 `SwitchTask.zip`（含 SHA256 校验文件）分发，解压即用。
+
+---
+
 ## [v2.6] - 2026-11-06
 
 ### 🚀 SwitchTask v2.6 — Chrome / 网页全屏与视频播放实时缩略图与 DirectComposition 渲染深度优化 (Live Video Thumbnail & DirectComposition Resync Release)
