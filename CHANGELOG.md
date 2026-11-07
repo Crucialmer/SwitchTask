@@ -4,6 +4,29 @@
 
 ---
 
+## [v2.6] - 2026-11-06
+
+### 🚀 SwitchTask v2.6 — Chrome / 网页全屏与视频播放实时缩略图与 DirectComposition 渲染深度优化 (Live Video Thumbnail & DirectComposition Resync Release)
+
+**SwitchTask** 正式发布 **v2.6** 版本！针对 Chromium 内核（Google Chrome、Microsoft Edge 等）在视频播放、全屏播放状态下缩略图黑屏、不实时刷新的痛点问题，进行了底层 DWM 硬件加速合成管道、DirectComposition 重定向纹理与渲染管线唤醒的深度优化。
+
+#### 🌟 v2.6 核心修复与优化项
+1. **解决 Chrome / Edge 视频全屏与硬件加速播放下缩略图偶发黑屏**：
+   - **MPO / DirectFlip 解除延迟同步**：当 Chrome 处于视频播放或全屏时，Chromium 会启用 DirectFlip 与 MPO（Multi-Plane Overlay，多平面叠加）绕过 DWM 合成直接向显示器输出。SwitchTask 呼出激活时，Windows DWM 会强制 Chrome 退出 MPO 并重建 DirectComposition 重定向表面，此过程存在 50~120ms 延时。SwitchTask 新增在注册缩略图 ~120ms 时自动触发单次无感知 DWM 纹理重新绑定脉冲（`fVisible` 脉冲刷新），彻底解决初始画面捕获为空白黑屏的顽疾；
+   - **物理矩形兜底机制**：针对全屏视频播放时 DWM 源尺寸查询返回 0x0 的极端情况，自动回退利用物理窗口矩形计算最佳居中比例，杜绝画面变形与塌陷。
+
+2. **解决非前台渲染冻结，实现全屏与视频播放 100% 实时流动**：
+   - **Chromium 原生窗口遮挡节流（Native Window Occlusion Throttling）唤醒**：Chrome 检测到窗口失去焦点（`WA_INACTIVE`）时会冻结/降低后台视频帧渲染。SwitchTask 引入轻量级渲染唤醒管线（`Util::nudgeWindowRendering`），向目标窗口及其子渲染句柄投递安全非阻塞的内部重绘脉冲，促使 DirectComposition 交换链持续 Present 输出新帧；
+   - **~16fps 轻量级 DWM 心跳刷新机制**：在 SwitchTask 弹出期间，以极低系统开销（纯内核态 syscall，每次仅约 5 微秒）持续驱动缩略图属性刷新，确保 Chrome 播放 Bilibili、YouTube、全屏视频或直播时，舞台与悬浮窗内画面均呈现流畅实时的动态视频流。
+
+3. **零后台开销保障**：
+   - 心跳定时器严格绑定 SwitchTask 面板可见生命周期，在切换完成、面板隐藏或销毁时立即主动注销停止，日常待机与后台零 CPU / GPU 额外占用。
+
+4. **标准化一键发布**：
+   - 保持极简分发结构，统一提供预配置 Qt 运行库的便携标准包 `SwitchTask.zip`（含 SHA256 校验文件），开箱即用。
+
+---
+
 ## [v2.5] - 2026-11-05
 
 ### 🚀 SwitchTask v2.5 — 方案 2 舞台集成默认首选与全链路性能深度优化 (Stage HUD Default & Performance Optimization Release)

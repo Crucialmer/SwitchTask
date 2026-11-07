@@ -34,6 +34,9 @@ public:
 
     void releaseThumbnail();
 
+    /// 实时心跳刷新（用于视频与全屏 DirectComposition 流畅连续回放）
+    void heartbeatRefresh();
+
     HWND hWnd() const { return (HWND)winId(); }
 
 protected:

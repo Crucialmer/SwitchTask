@@ -948,4 +948,9 @@ namespace Util {
         g_clickShield.pendingRelease = false;
         QTimer::singleShot(0, unhookClickShield); // 回事件循环后安全卸载
     }
+    void nudgeWindowRendering(HWND hwnd) {
+        if (!hwnd || !IsWindow(hwnd) || IsIconic(hwnd)) return;
+        SendMessageTimeoutW(hwnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 20, nullptr);
+        RedrawWindow(hwnd, nullptr, nullptr, RDW_INTERNALPAINT | RDW_ALLCHILDREN);
+    }
 } // Util

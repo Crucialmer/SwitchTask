@@ -48,6 +48,14 @@ void ThumbnailPopupWidget::releaseThumbnail() {
     }
 }
 
+void ThumbnailPopupWidget::heartbeatRefresh() {
+    if (!m_hThumbnail || !m_targetHwnd || !IsWindow(m_targetHwnd) || IsIconic(m_targetHwnd) || !isVisible()) {
+        return;
+    }
+    Util::nudgeWindowRendering(m_targetHwnd);
+    updateThumbnailProperties();
+}
+
 QSize ThumbnailPopupWidget::querySourceSize() const {
     if (!m_targetHwnd || !IsWindow(m_targetHwnd)) return {};
 
@@ -97,6 +105,7 @@ void ThumbnailPopupWidget::showForWindow(HWND targetHwnd, const QRect& iconGloba
     if (!m_hThumbnail && m_targetHwnd && IsWindow(m_targetHwnd)) {
         HRESULT hr = DwmRegisterThumbnail(hWnd(), m_targetHwnd, &m_hThumbnail);
         qInfo() << "Popup DwmRegisterThumbnail:" << Qt::hex << hr << "dest:" << hWnd() << "src:" << m_targetHwnd;
+        Util::nudgeWindowRendering(m_targetHwnd);
     }
 
     updateThumbnailProperties();
@@ -113,6 +122,7 @@ void ThumbnailPopupWidget::setTargetWindow(HWND targetHwnd) {
         if (m_targetHwnd && IsWindow(m_targetHwnd)) {
             HRESULT hr = DwmRegisterThumbnail(hWnd(), m_targetHwnd, &m_hThumbnail);
             qInfo() << "Popup DwmRegisterThumbnail:" << Qt::hex << hr << "dest:" << hWnd() << "src:" << m_targetHwnd;
+            Util::nudgeWindowRendering(m_targetHwnd);
             updateThumbnailProperties();
         }
         update();
@@ -132,7 +142,13 @@ void ThumbnailPopupWidget::updateThumbnailProperties() {
     }
 
     SIZE srcSize = {0, 0};
-    DwmQueryThumbnailSourceSize(m_hThumbnail, &srcSize);
+    if (FAILED(DwmQueryThumbnailSourceSize(m_hThumbnail, &srcSize)) || srcSize.cx <= 0 || srcSize.cy <= 0) {
+        RECT rc;
+        if (GetWindowRect(m_targetHwnd, &rc)) {
+            srcSize.cx = rc.right - rc.left;
+            srcSize.cy = rc.bottom - rc.top;
+        }
+    }
 
     // 四周留出 8px macOS 微光边框
     QRect contentRect = rect().adjusted(8, 8, -8, -8);

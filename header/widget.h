@@ -8,6 +8,7 @@
 #include <QDebug>
 #include <QDateTime>
 #include <QColor>
+#include <QTimer>
 #include "utils/ConfigManager.h"
 
 struct WindowInfo {
@@ -129,6 +130,13 @@ private:
     HWND stageTargetHwnd = nullptr;
     QRect stageRect;
     void updateStageThumbnailProperties();
+
+    // 实时缩略图动态心跳与视频/全屏唤醒机制
+    QTimer* thumbnailHeartbeatTimer = nullptr;
+    int thumbnailSyncPulseCount = 0;
+    void startThumbnailHeartbeat();
+    void stopThumbnailHeartbeat();
+    void onThumbnailHeartbeat();
 };
 
 

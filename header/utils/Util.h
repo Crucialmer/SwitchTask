@@ -48,6 +48,8 @@ namespace Util {
     bool isTaskbarWindow(HWND hwnd);
     /// 超椭圆（squircle）路径：连续曲率圆角，macOS 风格方圆角（用于选中底绘制）
     QPainterPath squirclePath(const QRectF& rect, qreal exponent = 5.0);
+    /// 唤醒目标窗口渲染管道（针对 Chrome/Edge/视频播放/全屏等 DirectComposition/MPO 场景，防后台冻结与黑屏）
+    void nudgeWindowRendering(HWND hwnd);
 } // Util
 
 #endif //WIN_SWITCHER_UTIL_H

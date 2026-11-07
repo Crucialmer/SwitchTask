@@ -98,6 +98,11 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     // 方案 1 悬浮卡片窗口改为按需懒加载（默认方案 2 舞台模式下零额外窗口句柄开销）
     popupWidget = nullptr;
 
+    // 缩略图心跳刷新定时器：~16fps 轻量唤醒，保证 Chrome/全屏/视频播放实时渲染与防黑屏
+    thumbnailHeartbeatTimer = new QTimer(this);
+    thumbnailHeartbeatTimer->setInterval(60);
+    connect(thumbnailHeartbeatTimer, &QTimer::timeout, this, &Widget::onThumbnailHeartbeat);
+
     // 深浅色主题：面板/标题/选中底配色随系统自动切换（config.ini 的 ThemeMode 可强制 light/dark）
     applyTheme();
     connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this, [this](Qt::ColorScheme) {
@@ -1106,6 +1111,7 @@ void Widget::updateThumbnailForCurrentItem() {
         auto* screen = QGuiApplication::screenAt(globalRect.center());
         if (!screen) screen = QGuiApplication::primaryScreen();
         popupWidget->showForWindow(info.hwnd, globalRect, screen);
+        startThumbnailHeartbeat();
     } else if (mode == ThumbnailIntegrated) {
         if (popupWidget) {
             popupWidget->hidePopup();
@@ -1119,10 +1125,12 @@ void Widget::updateThumbnailForCurrentItem() {
             if (stageTargetHwnd && IsWindow(stageTargetHwnd)) {
                 HRESULT hr = DwmRegisterThumbnail(hWnd(), stageTargetHwnd, &stageThumbnail);
                 qInfo() << "Stage DwmRegisterThumbnail:" << Qt::hex << hr << "dest:" << hWnd() << "src:" << stageTargetHwnd;
+                Util::nudgeWindowRendering(stageTargetHwnd);
             }
         }
         if (stageThumbnail) {
             updateStageThumbnailProperties();
+            startThumbnailHeartbeat();
         }
         update();
     }
@@ -1174,10 +1182,52 @@ void Widget::updateStageThumbnailProperties() {
 }
 
 void Widget::hideThumbnails() {
+    stopThumbnailHeartbeat();
     if (popupWidget) popupWidget->hidePopup();
     if (stageThumbnail) {
         DwmUnregisterThumbnail(stageThumbnail);
         stageThumbnail = nullptr;
     }
     stageTargetHwnd = nullptr;
+}
+
+void Widget::startThumbnailHeartbeat() {
+    thumbnailSyncPulseCount = 0;
+    if (thumbnailHeartbeatTimer && !thumbnailHeartbeatTimer->isActive()) {
+        thumbnailHeartbeatTimer->start();
+    }
+}
+
+void Widget::stopThumbnailHeartbeat() {
+    thumbnailSyncPulseCount = 0;
+    if (thumbnailHeartbeatTimer && thumbnailHeartbeatTimer->isActive()) {
+        thumbnailHeartbeatTimer->stop();
+    }
+}
+
+void Widget::onThumbnailHeartbeat() {
+    if (!isVisible() && !pinned) {
+        stopThumbnailHeartbeat();
+        return;
+    }
+    thumbnailSyncPulseCount++;
+    if (cachedThumbMode == ThumbnailIntegrated) {
+        if (stageThumbnail && stageTargetHwnd && IsWindow(stageTargetHwnd) && !IsIconic(stageTargetHwnd)) {
+            Util::nudgeWindowRendering(stageTargetHwnd);
+            // 第 2 次心跳（~120ms）时进行一次微脉冲同步，让 Chrome 从 MPO 切换回 DirectComposition 后的重定向纹理强制与 DWM 重新绑定
+            if (thumbnailSyncPulseCount == 2) {
+                DWM_THUMBNAIL_PROPERTIES syncProps = {};
+                syncProps.dwFlags = DWM_TNP_VISIBLE;
+                syncProps.fVisible = FALSE;
+                DwmUpdateThumbnailProperties(stageThumbnail, &syncProps);
+                syncProps.fVisible = TRUE;
+                DwmUpdateThumbnailProperties(stageThumbnail, &syncProps);
+            }
+            updateStageThumbnailProperties();
+        }
+    } else if (cachedThumbMode == ThumbnailPopup) {
+        if (popupWidget && popupWidget->isVisible()) {
+            popupWidget->heartbeatRefresh();
+        }
+    }
 }
