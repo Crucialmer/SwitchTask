@@ -15,6 +15,7 @@
 #include <QMouseEvent>
 #include <QStyleHints>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QRandomGenerator>
 #include <QImage>
 #include <QMetaEnum>
@@ -26,6 +27,9 @@
 #include "utils/Theme.h"
 #include "utils/MacToast.h"
 #include "ThumbnailPreview.h"
+
+// 耗时探针：默认关闭，SWITCHTASK_TIMING=1 时用 qInfo 输出各阶段耗时（qInfo 不受 QT_NO_DEBUG_OUTPUT 影响）
+static const bool kTimingEnabled = qEnvironmentVariableIsSet("SWITCHTASK_TIMING");
 
 // 图标模式：true=优先每个窗口自身的图标（可区分不同文件夹/头像；源图通常 32px，放大到 64px 实测偏糊）；
 // false=统一应用图标（锐利）+ QQ 窗口叠加聊天头像角标。2026-10-11 实测后采用 false（B 方案）
@@ -218,6 +222,8 @@ void Widget::keyPressEvent(QKeyEvent* event) {
 }
 
 bool Widget::forceShow() {
+    QElapsedTimer fgTimer;
+    if (kTimingEnabled) fgTimer.start();
     // 优先采用无动画闪烁的焦点获取机制：
     // 模拟空按键输入以获得 Windows 前台转移许可，杜绝 showMinimized/showNormal 触发 DWM 最小化恢复动画和闪烁
     INPUT input = {.type = INPUT_KEYBOARD};
@@ -247,6 +253,8 @@ bool Widget::forceShow() {
         }
     }
     updateThumbnailForCurrentItem();
+    if (kTimingEnabled)
+        qInfo().nospace() << "[timing] forceShow " << fgTimer.elapsed() << "ms foreground=" << isForeground();
     return isForeground();
 }
 
@@ -498,7 +506,10 @@ QList<WindowInfo> Widget::prepareWindowList() {
 bool Widget::prepareListWidget() {
     // 新一轮弹窗交互开始：解除上一轮遗留的"双击屏蔽"（若有），避免其吞掉本轮在同一位置的第一次点击
     Util::disarmClickShield();
+    QElapsedTimer timing;
+    if (kTimingEnabled) timing.start();
     auto winList = prepareWindowList();
+    const qint64 tEnum = kTimingEnabled ? timing.restart() : 0;
 
     // get screen（窗口定位与自适应都需要，提前获取）
     bool displayOnPrimary = (CFG.getDisplayMonitor() == PrimaryMonitor);
@@ -577,6 +588,7 @@ bool Widget::prepareListWidget() {
         lw->addItem(item);
     }
     lw->setUpdatesEnabled(true);
+    const qint64 tIcons = kTimingEnabled ? timing.restart() : 0;
 
     // 初始选中行：首个 item 是前台窗口时选第二行（直接比对窗口句柄；因为有些情况：选中桌面 并不会产生一个 item）
     // —— 仅决定首次高亮项（Ctrl+Tab 语义：先选中“上一个窗口”）；面板宽度不依赖它（v1.14 起按全部标题定宽）
@@ -590,10 +602,17 @@ bool Widget::prepareListWidget() {
         return false;
     }
     relayoutGeometry(screen);
+    const qint64 tLayout = kTimingEnabled ? timing.restart() : 0;
 
     // set current item（initialRow 已在上方统一判定）
     if (lw->count() >= 1)
         lw->setCurrentRow(initialRow); //! 首次显示时，该行特别耗时：472ms
+    const qint64 tSelect = kTimingEnabled ? timing.restart() : 0;
+
+    if (kTimingEnabled)
+        qInfo().nospace() << "[timing] prepareListWidget windows=" << winList.size()
+                          << " enum=" << tEnum << "ms icons=" << tIcons << "ms layout=" << tLayout
+                          << "ms select=" << tSelect << "ms total=" << (tEnum + tIcons + tLayout + tSelect) << "ms";
 
     return true;
 }
@@ -1137,7 +1156,11 @@ void Widget::updateThumbnailForCurrentItem() {
             }
             stageTargetHwnd = info.hwnd;
             if (stageTargetHwnd && IsWindow(stageTargetHwnd)) {
+                QElapsedTimer dwmTimer;
+                if (kTimingEnabled) dwmTimer.start();
                 HRESULT hr = DwmRegisterThumbnail(hWnd(), stageTargetHwnd, &stageThumbnail);
+                if (kTimingEnabled)
+                    qInfo().nospace() << "[timing] DwmRegisterThumbnail " << dwmTimer.elapsed() << "ms hr=" << Qt::hex << hr;
                 qInfo() << "Stage DwmRegisterThumbnail:" << Qt::hex << hr << "dest:" << hWnd() << "src:" << stageTargetHwnd;
                 Util::nudgeWindowRendering(stageTargetHwnd);
                 // 50ms 与 120ms 两次微脉冲刷新：等待后台 Chromium 收到 un-occluded 信号并完成首帧解码输出
