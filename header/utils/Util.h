@@ -53,6 +53,11 @@ namespace Util {
     /// Explorer、Office、记事本等即使被完全盖住，DWM 缩略图仍然实时——不该给它们遮挡提示。
     /// @param knownExePath 调用方已解析过的进程路径（可空，空则仅按窗口类名判断）
     bool isWindowOcclusionSensitive(HWND hwnd, const QString& knownExePath = {});
+    /// 该窗口所属应用当前是否有正在播放的音频会话（Windows Audio Session）。
+    /// 用来把遮挡提示限定在"确实在放媒体"的窗口上：静态网页被遮挡没有提示的意义。
+    /// 注意：Chromium 的音频由独立的 audio service 子进程承载（实测会话 PID ≠ 窗口 PID），
+    /// 因此按可执行文件路径比对，而不是 PID。结果按 exe 路径缓存 1 秒。
+    bool isWindowPlayingMedia(HWND hwnd, const QString& knownExePath = {});
     /// 超椭圆（squircle）路径：连续曲率圆角，macOS 风格方圆角（用于选中底绘制）
     QPainterPath squirclePath(const QRectF& rect, qreal exponent = 5.0);
     /// 唤醒目标窗口渲染管道（针对 Chrome/Edge/视频播放/全屏等 DirectComposition/MPO 场景，防后台冻结与黑屏）

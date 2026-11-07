@@ -95,6 +95,7 @@ target_link_libraries(${PROJECT_NAME}
         Qt::CorePrivate   # UpdateDialog.cpp 使用了 QtCore/private/qzipreader_p.h
         Qt::GuiPrivate    # 引用 Qt6Gui_PRIVATE_INCLUDE_DIRS
         Dwmapi
+        Ole32            # Util.cpp 使用 IMMDeviceEnumerator 枚举音频会话
         Propsys          # AppUtil.cpp 使用 propsys (SHGetPropertyStoreFromParsingName)
         Comctl32         # commoncontrols.h
         windowsapp       # winrt/Windows.Management.Deployment.h

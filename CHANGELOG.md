@@ -15,6 +15,10 @@
 - **WinEvent 兜底重试短路**：已显示时只 `forceShow()`，不再重复枚举/重建/重注册缩略图。
 - **Release 关闭 qDebug**：定义 `QT_NO_DEBUG_OUTPUT`（`qInfo` / `qWarning` 保留）。
 
+### 批次 2 修复 2（实测反馈）
+
+- **无视频的网页也弹提示**：遮挡提示追加「正在播放媒体」门禁——枚举 Windows 音频会话，只有该应用存在 `AudioSessionStateActive` 会话时才提示。Chromium 的音频由独立 audio service 子进程承载（实测会话 PID 12324 ≠ 窗口 PID 8880），因此按**可执行文件路径**比对而非 PID，结果按 exe 缓存 1 秒。
+- **提示文案**：改为「视频窗口被遮挡，待激活后自动播放」。
 ### 批次 2 修复 1（实测反馈）
 
 - **遮挡提示误报**：文件管理器等窗口也会弹出「被遮挡」。两个原因：① 4px 贴边采样落在 Win10/11 的 `GetWindowRect` 不可见边框里，命中的是后面的窗口；② Explorer 这类非 Chromium 窗口即使被完全盖住，DWM 缩略图本来就在实时更新，提示对它没有意义。

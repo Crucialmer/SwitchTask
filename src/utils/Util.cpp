@@ -28,10 +28,13 @@
 #include <QCoreApplication>
 #include <QSet>
 #include <QTimer>
+#include <QDateTime>
 #include <QImage>
 #include <QCache>
 #include <QStringView>
 #include <atomic>
+#include <mmdeviceapi.h>
+#include <audiopolicy.h>
 
 namespace Util {
     QString getWindowTitle(HWND hwnd) {
@@ -929,6 +932,69 @@ namespace Util {
         // 只有"多数采样点确实被外部窗口覆盖"才算遮挡：
         // 小窗口整个躲在切换器面板后面时（全部命中自己）必须返回 false，否则就是误报
         return foreign >= 5;
+    }
+
+    bool isWindowPlayingMedia(HWND hwnd, const QString& knownExePath) {
+        if (!hwnd || !IsWindow(hwnd))
+            return false;
+
+        QString exe = knownExePath;
+        if (exe.isEmpty()) {
+            DWORD pid = 0;
+            GetWindowThreadProcessId(hwnd, &pid);
+            if (!pid) return false;
+            exe = getProcessPath(pid);
+        }
+        if (exe.isEmpty())
+            return false;
+
+        // 1s TTL：枚举音频会话是跨进程 COM，不能放在悬停路径上每次都跑
+        struct Entry { qint64 at; bool playing; };
+        static QHash<QString, Entry> cache;
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (const auto it = cache.constFind(exe); it != cache.constEnd() && now - it->at < 1000)
+            return it->playing;
+
+        bool playing = false;
+        CComPtr<IMMDeviceEnumerator> enumerator;
+        if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                       IID_PPV_ARGS(&enumerator)))) {
+            CComPtr<IMMDevice> device;
+            if (SUCCEEDED(enumerator->GetDefaultAudioEndpoint(eRender, eMultimedia, &device))) {
+                CComPtr<IAudioSessionManager2> manager;
+                if (SUCCEEDED(device->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr,
+                                               reinterpret_cast<void**>(&manager)))) {
+                    CComPtr<IAudioSessionEnumerator> list;
+                    if (SUCCEEDED(manager->GetSessionEnumerator(&list))) {
+                        int count = 0;
+                        if (SUCCEEDED(list->GetCount(&count))) {
+                            for (int i = 0; i < count && !playing; ++i) {
+                                CComPtr<IAudioSessionControl> control;
+                                if (FAILED(list->GetSession(i, &control)) || !control)
+                                    continue;
+                                AudioSessionState state{};
+                                if (FAILED(control->GetState(&state)) || state != AudioSessionStateActive)
+                                    continue; // 暂停/结束的会话不算"正在播放"
+                                CComPtr<IAudioSessionControl2> control2;
+                                if (FAILED(control->QueryInterface(IID_PPV_ARGS(&control2))))
+                                    continue;
+                                DWORD sessionPid = 0;
+                                if (FAILED(control2->GetProcessId(&sessionPid)) || !sessionPid)
+                                    continue;
+                                // 关键：Chromium 的会话归属 audio service 子进程，
+                                // 与窗口 PID 不同，只能按 exe 路径比对
+                                if (QString::compare(getProcessPath(sessionPid), exe, Qt::CaseInsensitive) == 0)
+                                    playing = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        cache.insert(exe, Entry{now, playing});
+        if (cache.size() > 32) cache.clear();
+        return playing;
     }
 
     bool isWindowOcclusionSensitive(HWND hwnd, const QString& knownExePath) {

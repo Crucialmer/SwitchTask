@@ -14,7 +14,7 @@ namespace {
     constexpr int kPadRight = 12;
     constexpr int kGlyph = 13;
     constexpr int kGap = 6;
-    const QString kText = QStringLiteral("窗口被遮挡 · 点击唤醒");
+    const QString kText = QStringLiteral("视频窗口被遮挡，待激活后自动播放");
 
     QFont captionFont() {
         QFont f = QApplication::font();

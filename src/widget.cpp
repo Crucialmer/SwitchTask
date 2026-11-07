@@ -1254,6 +1254,13 @@ void Widget::refreshOcclusionHint() {
         return;
     }
 
+    // 且必须确实在播放媒体：静态网页即使被遮挡也没有"等待播放"这回事，
+    // 给提示只会制造噪音（实测反馈：没有视频的网页也会弹出提示）
+    if (!Util::isWindowPlayingMedia(info.hwnd, info.exePath)) {
+        hideOcclusionHint();
+        return;
+    }
+
     if (!Util::isWindowFullyCovered(info.hwnd)) {
         // 注意：不要在这里 restorePeek()。抬升后窗口当然"不再被遮挡"，
         // 立刻还原会把刚唤醒的视频重新冻住。还原只发生在切项 / 面板收起 / 析构。
