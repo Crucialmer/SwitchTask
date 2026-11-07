@@ -93,7 +93,6 @@ target_link_libraries(${PROJECT_NAME}
         Qt::CorePrivate   # UpdateDialog.cpp 使用了 QtCore/private/qzipreader_p.h
         Qt::GuiPrivate    # 引用 Qt6Gui_PRIVATE_INCLUDE_DIRS
         Dwmapi
-        Psapi            # Util.cpp 使用 GetModuleFileNameEx
         Propsys          # AppUtil.cpp 使用 propsys (SHGetPropertyStoreFromParsingName)
         Comctl32         # commoncontrols.h
         windowsapp       # winrt/Windows.Management.Deployment.h
@@ -113,6 +112,8 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
         UNICODE # for Windows API，使用W版本
         _UNICODE # for C/C++ 标准库
 )
+# Release 关闭 qDebug 输出（qInfo/qWarning 保留）：每次弹窗几十条 OutputDebugString，挂调试器时是真延迟
+target_compile_definitions(${PROJECT_NAME} PRIVATE $<$<CONFIG:Release>:QT_NO_DEBUG_OUTPUT>)
 
 if (MSVC)
     target_compile_options(${PROJECT_NAME} PRIVATE

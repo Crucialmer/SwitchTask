@@ -3,7 +3,6 @@
 #include <appmodel.h>
 #include "utils/AppUtil.h"
 #include <QDebug>
-#include <psapi.h>
 #include <QFileInfo>
 #include <QDir>
 #include "utils/QtWin.h"
@@ -13,6 +12,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <cmath>
+#include <string>
 #include <propkey.h>
 #include <atlbase.h>
 #include <minappmodel.h>
@@ -106,27 +106,32 @@ namespace Util {
 
     // slow
     QString getProcessPath(DWORD pid) {
-        QString path;
-        static const bool isWin10orHigher = (QOperatingSystemVersion::current() >= QOperatingSystemVersion::Windows10);
-        HANDLE hProcess = nullptr;
-        if (isWin10orHigher) // LIMIT权限基本可以open所有类型窗口
-            hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-        else // ↓该权限下，管理员权限窗口（如任务管理器）open失败; 1Password 虽然是非管理员窗口，但是安全系数较高，也open失败
-            hProcess = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
-
-        // for `GetModuleFileNameEx`, 句柄必须具有 PROCESS_QUERY_INFORMATION 和 PROCESS_VM_READ 访问权限
-        // but, Windows 10 及更高版本、Windows Server 2016 及更高版本：如果 hModule 参数为 NULL，则句柄只需要 PROCESS_QUERY_LIMITED_INFORMATION 访问权限
-        if (hProcess) {
-            TCHAR processName[MAX_PATH];
-            // https://www.cnblogs.com/mooooonlight/p/14491399.html
-            if (GetModuleFileNameEx(hProcess, nullptr, processName, MAX_PATH))
-                path = QString::fromWCharArray(processName);
-            else // 失败不留白：空路径的窗口会被调用方丢弃，需有据可查
-                qWarning() << "getProcessPath: GetModuleFileNameEx failed, pid:" << pid << GetLastError();
-            CloseHandle(hProcess);
-        } else {
+        // 只需要 PROCESS_QUERY_LIMITED_INFORMATION：QueryFullProcessImageNameW 自 Vista 起可用，
+        // 不再依赖 PsApi 的 GetModuleFileNameEx（后者在 Win10 之前要求更高的访问权限，且写死 MAX_PATH）
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (!hProcess) {
             qWarning() << "getProcessPath: OpenProcess failed, pid:" << pid << GetLastError();
+            return {};
         }
+
+        // 动态缓冲：超过 MAX_PATH 的长路径不会再被截断成错误路径。
+        // 截断会让路径比较失败，进而使该窗口在切换器里静默消失（见 prepareWindowList 的空路径门禁）
+        QString path;
+        DWORD cap = 1024;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            std::wstring buf(cap, L'\0');
+            DWORD len = cap;
+            if (QueryFullProcessImageNameW(hProcess, 0, buf.data(), &len)) {
+                path = QString::fromWCharArray(buf.data(), static_cast<int>(len));
+                break;
+            }
+            if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+                qWarning() << "getProcessPath: QueryFullProcessImageNameW failed, pid:" << pid << GetLastError();
+                break;
+            }
+            cap *= 4;
+        }
+        CloseHandle(hProcess);
         return path;
     }
 
@@ -143,9 +148,23 @@ namespace Util {
 
         DWORD pid = 0;
         GetWindowThreadProcessId(hwnd, &pid);
-        if (pid)
-            return getProcessPath(pid);
-        return {};
+        if (!pid)
+            return {};
+
+        // HWND → 路径缓存：每次弹窗都要为每个窗口解析一次路径（OpenProcess + 查询），
+        // 而窗口句柄在一次会话内基本稳定。用 pid 校验句柄复用：HWND 被新进程接管时 pid 必然变化。
+        // thread_local：后台图标预取线程也会调用 listValidWindows → 这里，避免跨线程共享容器。
+        struct Entry { DWORD pid; QString path; };
+        thread_local QHash<HWND, Entry> pathCache;
+        if (const auto it = pathCache.constFind(hwnd); it != pathCache.constEnd() && it->pid == pid)
+            return it->path;
+
+        auto path = getProcessPath(pid);
+        if (!path.isEmpty()) {
+            if (pathCache.size() >= 512) pathCache.clear(); // 有界：防止长时间运行无限增长
+            pathCache.insert(hwnd, Entry{pid, path});
+        }
+        return path;
     }
 
     /// 根据可执行文件路径查找进程 PID

@@ -11,7 +11,6 @@ class IconOnlyDelegate : public QStyledItemDelegate {
     QColor selectedColor;
     QColor hoverColor;
     QColor selectedStrokeColor;
-    qreal selectionGrow = 1.0; // 选中胶囊弹性动效进度 0~1（由 Widget 的动画驱动；macOS 风格）
 
 public:
     explicit IconOnlyDelegate(QObject* parent, QColor selectedColor, QColor hoverColor, QColor selectedStroke = {})
@@ -24,8 +23,6 @@ public:
         selectedStrokeColor = selectedStroke;
     }
 
-    /// 动画步进（调用方随后触发 viewport 重绘）
-    void setSelectionGrow(qreal grow) { selectionGrow = grow; }
 
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override;
 };

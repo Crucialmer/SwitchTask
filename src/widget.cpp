@@ -17,8 +17,6 @@
 #include <QTimer>
 #include <QRandomGenerator>
 #include <QImage>
-#include <QVariantAnimation>
-#include <QEasingCurve>
 #include <QMetaEnum>
 #include <QFontMetrics>
 #include <QSet>
@@ -84,18 +82,6 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     iconDelegate = new IconOnlyDelegate(lw, Theme::selectionFill(), Theme::hoverFill(), Theme::selectionStroke());
     lw->setItemDelegate(iconDelegate);
 
-    // macOS 风格：选中项放大动效（0→1，约 110ms，OutCubic）——由选中变化与弹窗显示触发；
-    // 动画步进写入 delegate 并触发 viewport 重绘（含放大后与相邻单元格的重叠区域）
-    selectionGrowAnim = new QVariantAnimation(this);
-    selectionGrowAnim->setStartValue(0.0);
-    selectionGrowAnim->setEndValue(1.0);
-    selectionGrowAnim->setDuration(110);
-    selectionGrowAnim->setEasingCurve(QEasingCurve::OutCubic);
-    connect(selectionGrowAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
-        if (iconDelegate)
-            iconDelegate->setSelectionGrow(v.toReal());
-        lw->viewport()->update();
-    });
     lw->installEventFilter(this);
     // 鼠标事件实际投递给列表的 viewport（不是 QListWidget 本身，QAbstractScrollArea 子类的经典坑）——
     // 必须同时装在 viewport 上，否则点击图标的按下事件会被列表默认处理消费，过滤器收不到（单击切换失效的根因）
@@ -128,7 +114,6 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     connect(lw, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* cur, QListWidgetItem*) {
         if (cur) {
             showLabelForItem(cur);
-            startSelectionGrow(); // macOS 风格：选中项放大动效（快速切换时呈“跟随放大”效果）
             updateThumbnailForCurrentItem();
         }
     });
@@ -266,17 +251,8 @@ bool Widget::forceShow() {
             SetWindowPos(hWnd(), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
         }
     }
-    startSelectionGrow(); // macOS 风格：弹出时选中项胶囊弹性登场
     updateThumbnailForCurrentItem();
     return isForeground();
-}
-
-/// macOS 风格：播放“选中项放大”动效（0→1）；快速切换时停止并从头播放，形成跟随放大效果。
-/// 仅在可见时播放：隐藏期间的选中变化（如列表重建）不必空跑，弹窗显示时由 forceShow 统一起始
-void Widget::startSelectionGrow() {
-    if (!selectionGrowAnim || !isVisible()) return;
-    selectionGrowAnim->stop();
-    selectionGrowAnim->start();
 }
 
 /// show App description under the icon
@@ -723,6 +699,12 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
 }
 
 bool Widget::requestShow() { // TODO 当前台是开始菜单（Win）时，会导致显示 但无法操控
+    // 已显示时只抢前台，不重建列表：WinEvent 兜底路径会在 60ms 内连续调用 4 次，
+    // 每次都全量重枚举 + 重建 + 重注册缩略图，纯属浪费（也白占一次钩子时间预算）
+    if (isVisible() && !isMinimized()) {
+        forceShow();
+        return true;
+    }
     pinned = false;
     return prepareListWidget() && forceShow();
 }

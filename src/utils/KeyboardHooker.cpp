@@ -91,7 +91,10 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 int qtKey = 0;
                 // Win 组合（Win+Tab / Win+方向键 / Win+Space 等）一律放行；
                 // Ctrl 组合逐项判断（Ctrl+Space=输入法切换、Ctrl+Esc=开始菜单、Ctrl+Tab 等均放行）
-                if (!winPressed) {
+                // 焦点不在弹窗时一律放行：弹窗"可见但没拿到前台"的状态确实存在
+                // （见 Widget::focusWindowChanged 的告警分支），此时若继续拦截，
+                // 用户在别的程序里按 Tab / Esc / 方向键会被全局吞掉。
+                if (!winPressed && isForeground) {
                     switch (pKeyBoard->vkCode) {
                         // Alt 按住时 Tab/` 已由上方分支处理
                         case VK_TAB:    if (!isAltPressed && !ctrl) qtKey = Qt::Key_Tab; break;

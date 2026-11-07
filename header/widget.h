@@ -84,8 +84,6 @@ private:
     void closeWindowItem(QListWidgetItem* item);
     /// Ctrl+W：关闭当前选中项对应的窗口（与中键单击等效）
     void closeCurrentItem();
-    /// macOS 风格：播放选中项放大动效（选中变化 / 弹窗显示时触发）
-    void startSelectionGrow();
     /// 循环选择（forward=true 下一个 / false 上一个）
     void cycleSelection(bool forward);
     /// 重新计算面板几何尺寸与居中位置（条目增减时维持 macOS 风格绝对对称）
@@ -104,8 +102,7 @@ private:
 private:
     Ui::Widget* ui;
     QListWidget* lw = nullptr;
-    IconOnlyDelegate* iconDelegate = nullptr; // 列表 delegate（驱动选中放大动效）
-    QVariantAnimation* selectionGrowAnim = nullptr; // macOS 风格：选中项放大动画 0→1
+    IconOnlyDelegate* iconDelegate = nullptr; // 列表 delegate（自绘选中/悬停底与图标）
     const QMargins ListWidgetMargin{24, 24, 24, 24}; // 左/上/右参与布局；bottom 为 marginsAdded 占位（底边距由“文字等距”规则动态计算，见 prepareListWidget）
     /// exePath -> (HWND, time)
     QHash<QString, QHash<HWND, QDateTime>> winActiveOrder;
