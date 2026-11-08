@@ -3,6 +3,7 @@
 #include <QTime>
 #include <QStringView>
 #include <atomic>
+#include <future>
 #include "utils/uiautomation.h"
 #include "utils/AppUtil.h"
 #include "utils/Util.h"
@@ -51,9 +52,9 @@ namespace {
     }
 }
 
-/// 低级钩子回调：只做廉价判定与事件缓存，重活（UIA查询/路径解析/切窗）全部由主线程
-/// processWheelEvent() 异步处理——WH_MOUSE_LL 回调超时（默认1s）会被系统静默跳过，
-/// 表现为滚轮偶发失灵，因此回调内不做任何耗时操作。
+/// 低级钩子回调：运行于专属独立消息线程，只做廉价判定与事件缓存，重活（UIA查询/路径解析/切窗）全部由主线程
+/// processWheelEvent() 异步处理——WH_MOUSE_LL 回调超时会被系统静默跳过，
+/// 独立线程保证永远不被 GUI 主线程的绘制或 I/O 阻塞。
 LRESULT CALLBACK mouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION) {
         // 1. 双击屏蔽：复用常驻低级鼠标钩子，消除每次弹窗频繁 Set/UnhookWindowsHookEx
@@ -91,7 +92,7 @@ void TaskbarWheelHooker::processWheelEvent(bool isUp, HWND topLevelHwnd) {
     } pendingGuard;
     auto delta = isUp ? 120 : -120;
     qDebug() << "--- Taskbar Mouse Wheel" << (delta > 0 ? "↑" : "↓");
-    auto el = UIAutomation::getElementUnderMouse(); // RVO优化 不会调用移动构造; // this line may bomb TODO 也许可以改成遍历元素
+    auto el = UIAutomation::getElementUnderMouse(); // RVO优化 不会调用移动构造
     // UIA 属性查询是跨进程 RPC：各属性只取一次、全程复用（原先同一事件最多 7 次 RPC）
     auto cls = el.getClassName();
     auto automationId = el.getAutomationId();
@@ -108,8 +109,7 @@ void TaskbarWheelHooker::processWheelEvent(bool isUp, HWND topLevelHwnd) {
         qDebug() << (cls != "CEF-OSC-WIDGET" ? "successful!" : "failed");
     }
     if (cls == "Taskbar.TaskListButtonAutomationPeer") {
-        // TODO 在副屏 有时候会是"TaskbarFrame"
-        if (!automationId.startsWith(QStringLiteral("Appid: "))) { // 非预期来源：宁可不动，也不要用被截断的字符串匹配到错误的分组
+        if (!automationId.startsWith(QStringLiteral("Appid: "))) { // 非预期来源：跳过
             qDebug() << "Unexpected AutomationId, skipped:" << automationId;
             return;
         }
@@ -138,11 +138,37 @@ TaskbarWheelHooker::TaskbarWheelHooker() {
     connect(this, &TaskbarWheelHooker::rawWheelEvent, this, &TaskbarWheelHooker::processWheelEvent,
             Qt::QueuedConnection);
 
-    // 单次安装低级鼠标钩子：回调内部只在监听到 WM_MOUSEWHEEL 时做极轻量窗口判定（非滚轮消息零开销直接放行）。
-    // 彻底移除每 50ms 唤醒一次 CPU 的死循环轮询与频繁装卸钩子，消除笔记本电量消耗与 Win32 钩子链抖动。
-    h_mouse = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) mouseProc, GetModuleHandle(nullptr), 0);
-    if (!h_mouse) {
-        qCritical() << "Failed to install taskbar mouse hook!";
+    // 在专属消息线程中安装低级鼠标钩子：确保鼠标全局事件完全与 GUI 线程解耦
+    std::promise<bool> installedPromise;
+    auto installedFuture = installedPromise.get_future();
+
+    m_thread = std::thread([this, &installedPromise]() {
+        MSG msg;
+        PeekMessageW(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
+        m_threadId = GetCurrentThreadId();
+
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+
+        HHOOK h_mouse = SetWindowsHookExW(WH_MOUSE_LL, (HOOKPROC) mouseProc, GetModuleHandleW(nullptr), 0);
+        if (!h_mouse) {
+            installedPromise.set_value(false);
+            return;
+        }
+
+        installedPromise.set_value(true);
+
+        while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+
+        UnhookWindowsHookEx(h_mouse);
+    });
+
+    if (installedFuture.wait_for(std::chrono::seconds(2)) == std::future_status::ready && installedFuture.get()) {
+        qInfo() << "TaskbarWheelHooker installed in dedicated thread ID:" << m_threadId;
+    } else {
+        qCritical() << "Failed to install taskbar mouse hook in dedicated thread!";
     }
 
     // 任务栏空闲超时：滚动停止 800ms 后发出 leaveTaskbar 信号，清理同组窗口顺序
@@ -158,11 +184,13 @@ TaskbarWheelHooker::TaskbarWheelHooker() {
 }
 
 TaskbarWheelHooker::~TaskbarWheelHooker() {
-    if (h_mouse) {
-        UnhookWindowsHookEx(h_mouse);
-        h_mouse = nullptr;
-        qDebug() << "MouseHooker uninstalled";
+    if (m_threadId) {
+        PostThreadMessageW(m_threadId, WM_QUIT, 0, 0);
+        if (m_thread.joinable()) {
+            m_thread.join();
+        }
     }
     TaskbarWheelHooker::instance = nullptr;
     UIAutomation::cleanup();
+    qDebug() << "MouseHooker uninstalled";
 }
