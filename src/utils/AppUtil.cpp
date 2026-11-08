@@ -1,4 +1,4 @@
-﻿#include "utils/AppUtil.h"
+#include "utils/AppUtil.h"
 #include "utils/Util.h"
 #include <QDebug>
 #include <QFile>
@@ -168,7 +168,8 @@ namespace AppUtil {
 
         QString installPath;
         // 不包含版本号
-        QString packageFamilyName = AUMID.split('!').first();
+        const auto bangIdx = AUMID.indexOf(QLatin1Char('!'));
+        const QString packageFamilyName = (bangIdx != -1) ? AUMID.left(bangIdx) : AUMID;
 
         UINT32 count = 0;
         UINT32 bufferLength = 0;
@@ -243,7 +244,8 @@ namespace AppUtil {
     }
 
     QString getUwpExePathByAUMID(const QString& AUMID) {
-        auto applicationId = AUMID.split('!').last();
+        const auto bangIdx = AUMID.lastIndexOf(QLatin1Char('!'));
+        const QString applicationId = (bangIdx != -1) ? AUMID.mid(bangIdx + 1) : AUMID;
         auto dir = getUWPInstallDirByAUMID(AUMID);
         if (dir.isEmpty())
             return {}; // 包目录未知：返回空（而非拼接伪路径），调用方按“未找到”处理

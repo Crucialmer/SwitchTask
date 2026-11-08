@@ -95,7 +95,7 @@ target_link_libraries(${PROJECT_NAME}
         Dwmapi
         Propsys          # AppUtil.cpp 使用 propsys (SHGetPropertyStoreFromParsingName)
         Comctl32         # commoncontrols.h
-        windowsapp       # winrt/Windows.Management.Deployment.h
+
 )
 
 # 启用`gui_private`模块

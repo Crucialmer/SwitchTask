@@ -38,6 +38,7 @@ namespace Util {
     void armClickShield(int msecs);
     /// 解除“双击屏蔽”（弹窗每次打开时调用：新一轮交互的点击不得被上一轮的屏蔽误吞）
     void disarmClickShield();
+    bool processClickShield(WPARAM wParam, LPARAM lParam);
     QPixmap getWindowIcon(HWND hwnd);
     bool setWindowRoundCorner(HWND hwnd, DWM_WINDOW_CORNER_PREFERENCE pvAttribute = DWMWCP_ROUND);
     bool isKeyPressed(int vkey);

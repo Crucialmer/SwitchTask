@@ -20,9 +20,9 @@
 #include <shlobj_core.h>
 #include <QFileIconProvider>
 #include <qoperatingsystemversion.h>
-#include <winrt/Windows.Management.Deployment.h>
-#include <winrt/Windows.Foundation.Collections.h>
-#include <winrt/Windows.ApplicationModel.h>
+
+
+
 #include <QThread>
 #include <QMutex>
 #include <QCoreApplication>
@@ -896,77 +896,57 @@ bool isTaskbarWindow(HWND hwnd) {
     }
 
     // ----------------- 双击屏蔽（单击即切换后，吞掉双击的第二下） -----------------
+    // 复用 TaskbarWheelHooker 的单例 WH_MOUSE_LL 钩子，消除每次弹窗频繁 Set/UnhookWindowsHookEx 的内核抖动
     namespace {
-        HHOOK g_clickShieldHook = nullptr;
         struct ClickShield {
-            bool armed = false;
+            std::atomic_bool armed{false};
             POINT pos{};
             ULONGLONG untilMs = 0;
             bool pendingRelease = false; // 已吞下该次按下，连带吞掉其释放
         } g_clickShield;
-
-        void unhookClickShield() {
-            if (g_clickShieldHook) {
-                UnhookWindowsHookEx(g_clickShieldHook);
-                g_clickShieldHook = nullptr;
-            }
-        }
-
-        LRESULT CALLBACK clickShieldProc(int nCode, WPARAM wParam, LPARAM lParam) {
-            if (nCode == HC_ACTION && g_clickShield.armed) {
-                if (GetTickCount64() > g_clickShield.untilMs) {
-                    g_clickShield.armed = false;
-                    g_clickShield.pendingRelease = false;
-                    QTimer::singleShot(0, unhookClickShield); // 回事件循环后安全卸载
-                } else if (wParam == WM_LBUTTONDOWN) {
-                    auto* d = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
-                    // 容差取系统双击矩形（DPI 感知）、下限 6 物理像素：超高缩放时系统矩形更宽，
-                    // 固定 6 会窄于系统定义，导致真正的“双击第二下”漏吞
-                    const int tolX = qMax(6, GetSystemMetrics(SM_CXDOUBLECLK) / 2);
-                    const int tolY = qMax(6, GetSystemMetrics(SM_CYDOUBLECLK) / 2);
-                    if (qAbs(d->pt.x - g_clickShield.pos.x) <= tolX && qAbs(d->pt.y - g_clickShield.pos.y) <= tolY) {
-                        g_clickShield.pendingRelease = true;
-                        return 1; // 吞掉双击的第二下
-                    }
-                    g_clickShield.armed = false; // 位置不同：视为新的点击意图，解除屏蔽
-                } else if (wParam == WM_LBUTTONUP && g_clickShield.pendingRelease) {
-                    g_clickShield.pendingRelease = false;
-                    g_clickShield.armed = false;
-                    QTimer::singleShot(0, unhookClickShield);
-                    return 1; // 连带吞掉对应的释放
-                } else if (wParam == WM_RBUTTONDOWN || wParam == WM_MBUTTONDOWN || wParam == WM_XBUTTONDOWN) {
-                    g_clickShield.armed = false; // 其它按键按下 = 新的操作意图，解除屏蔽
-                }
-            }
-            return CallNextHookEx(nullptr, nCode, wParam, lParam);
-        }
     } // anonymous namespace
 
+    bool processClickShield(WPARAM wParam, LPARAM lParam) {
+        if (!g_clickShield.armed.load(std::memory_order_relaxed))
+            return false;
+
+        if (GetTickCount64() > g_clickShield.untilMs) {
+            g_clickShield.armed.store(false, std::memory_order_relaxed);
+            g_clickShield.pendingRelease = false;
+            return false;
+        }
+
+        if (wParam == WM_LBUTTONDOWN) {
+            auto* d = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
+            const int tolX = qMax(6, GetSystemMetrics(SM_CXDOUBLECLK) / 2);
+            const int tolY = qMax(6, GetSystemMetrics(SM_CYDOUBLECLK) / 2);
+            if (qAbs(d->pt.x - g_clickShield.pos.x) <= tolX && qAbs(d->pt.y - g_clickShield.pos.y) <= tolY) {
+                g_clickShield.pendingRelease = true;
+                return true; // 吞掉双击的第二下
+            }
+            g_clickShield.armed.store(false, std::memory_order_relaxed);
+        } else if (wParam == WM_LBUTTONUP && g_clickShield.pendingRelease) {
+            g_clickShield.pendingRelease = false;
+            g_clickShield.armed.store(false, std::memory_order_relaxed);
+            return true; // 连带吞掉对应的释放
+        } else if (wParam == WM_RBUTTONDOWN || wParam == WM_MBUTTONDOWN || wParam == WM_XBUTTONDOWN) {
+            g_clickShield.armed.store(false, std::memory_order_relaxed);
+        }
+        return false;
+    }
+
     void armClickShield(int msecs) {
-        POINT pos{}; // 物理屏幕坐标：与低级钩子 MSLLHOOKSTRUCT.pt 同一坐标系（勿用 Qt 逻辑坐标，缩放≠100% 时对不上）
-        GetCursorPos(&pos); // 布防时（点击刚发生）光标就在点击位置
-        g_clickShield.armed = true;
+        POINT pos{};
+        GetCursorPos(&pos);
         g_clickShield.pos = pos;
         g_clickShield.untilMs = GetTickCount64() + msecs;
         g_clickShield.pendingRelease = false;
-        if (!g_clickShieldHook)
-            g_clickShieldHook = SetWindowsHookEx(WH_MOUSE_LL, (HOOKPROC) clickShieldProc, GetModuleHandle(nullptr), 0);
-        if (!g_clickShieldHook)
-            qWarning() << "Failed to install click shield hook";
-        // 兜底卸载（期间没有后续点击时）
-        QTimer::singleShot(msecs + 200, [] {
-            if (!g_clickShield.armed || GetTickCount64() > g_clickShield.untilMs) {
-                g_clickShield.armed = false;
-                g_clickShield.pendingRelease = false;
-                unhookClickShield();
-            }
-        });
+        g_clickShield.armed.store(true, std::memory_order_relaxed);
     }
 
     void disarmClickShield() {
-        g_clickShield.armed = false;
+        g_clickShield.armed.store(false, std::memory_order_relaxed);
         g_clickShield.pendingRelease = false;
-        QTimer::singleShot(0, unhookClickShield); // 回事件循环后安全卸载
     }
     void nudgeWindowRendering(HWND hwnd) {
         if (!hwnd || !IsWindow(hwnd) || IsIconic(hwnd)) return;

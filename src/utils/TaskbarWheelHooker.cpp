@@ -1,6 +1,7 @@
 #include "utils/TaskbarWheelHooker.h"
 #include <QTimer>
 #include <QTime>
+#include <QStringView>
 #include <atomic>
 #include "utils/uiautomation.h"
 #include "utils/AppUtil.h"
@@ -12,24 +13,70 @@ namespace {
     /// 积压会把“某个时刻的意图”按停手后的光标位置解释，表现为“停手后仍连续切换、
     /// 且可能切到别的应用”。阈值 1：已有在途事件时丢弃新事件（饱和才生效，正常速率无行为变化）。
     std::atomic_int g_pendingWheel{0};
+
+    /// 快速任务栏几何初筛：缓存主屏及副屏任务栏的外接矩形（物理像素）
+    /// 避免全系统任意区域滚轮滚动时无差别触发 WindowFromPoint + GetAncestor + GetClassNameW
+    struct TaskbarGeometryCache {
+        ULONGLONG lastCheckedMs = 0;
+        RECT rects[8];
+        int count = 0;
+    } g_taskbarGeo;
+
+    bool isPointInTaskbarGeometry(const POINT& pt) {
+        const ULONGLONG now = GetTickCount64();
+        if (now - g_taskbarGeo.lastCheckedMs > 2000 || g_taskbarGeo.count == 0) {
+            g_taskbarGeo.lastCheckedMs = now;
+            g_taskbarGeo.count = 0;
+            // 1. 主屏任务栏
+            if (HWND hPrimary = FindWindowW(L"Shell_TrayWnd", nullptr)) {
+                if (IsWindowVisible(hPrimary) && GetWindowRect(hPrimary, &g_taskbarGeo.rects[g_taskbarGeo.count])) {
+                    g_taskbarGeo.count++;
+                }
+            }
+            // 2. 副屏任务栏
+            HWND hSec = nullptr;
+            while ((hSec = FindWindowExW(nullptr, hSec, L"Shell_SecondaryTrayWnd", nullptr)) != nullptr) {
+                if (g_taskbarGeo.count < 8 && IsWindowVisible(hSec)) {
+                    if (GetWindowRect(hSec, &g_taskbarGeo.rects[g_taskbarGeo.count])) {
+                        g_taskbarGeo.count++;
+                    }
+                }
+            }
+        }
+        for (int i = 0; i < g_taskbarGeo.count; ++i) {
+            if (PtInRect(&g_taskbarGeo.rects[i], pt))
+                return true;
+        }
+        return false;
+    }
 }
 
 /// 低级钩子回调：只做廉价判定与事件缓存，重活（UIA查询/路径解析/切窗）全部由主线程
 /// processWheelEvent() 异步处理——WH_MOUSE_LL 回调超时（默认1s）会被系统静默跳过，
 /// 表现为滚轮偶发失灵，因此回调内不做任何耗时操作。
 LRESULT CALLBACK mouseProc(int nCode, WPARAM wParam, LPARAM lParam) {
-    if (nCode == HC_ACTION && wParam == WM_MOUSEWHEEL) {
-        auto* data = (MSLLHOOKSTRUCT*) lParam;
-        HWND topLevelHwnd = Util::topWindowFromPoint(data->pt);
-        if (Util::isTaskbarWindow(topLevelHwnd)) {
-            auto delta = (short) HIWORD(data->mouseData);
-            // 背压（饱和才生效）：已有在途事件 → 不排队，照常放行给系统
-            if (g_pendingWheel.load(std::memory_order_relaxed) >= 1)
-                return CallNextHookEx(nullptr, nCode, wParam, lParam);
-            // 仅记录事件，QueuedConnection 交给 GUI 线程处理（instance 生命周期与进程一致，判空兜底）
-            if (TaskbarWheelHooker::instance) {
-                g_pendingWheel.fetch_add(1, std::memory_order_relaxed);
-                emit TaskbarWheelHooker::instance->rawWheelEvent(delta > 0, topLevelHwnd);
+    if (nCode == HC_ACTION) {
+        // 1. 双击屏蔽：复用常驻低级鼠标钩子，消除每次弹窗频繁 Set/UnhookWindowsHookEx
+        if (Util::processClickShield(wParam, lParam))
+            return 1;
+
+        // 2. 任务栏滚轮切换
+        if (wParam == WM_MOUSEWHEEL) {
+            auto* data = (MSLLHOOKSTRUCT*) lParam;
+            // 快速几何初筛：光标不在任何任务栏范围内时 O(1) 立即放行，避免触发跨进程系统调用
+            if (isPointInTaskbarGeometry(data->pt)) {
+                HWND topLevelHwnd = Util::topWindowFromPoint(data->pt);
+                if (Util::isTaskbarWindow(topLevelHwnd)) {
+                    auto delta = (short) HIWORD(data->mouseData);
+                    // 背压（饱和才生效）：已有在途事件 → 不排队，照常放行给系统
+                    if (g_pendingWheel.load(std::memory_order_relaxed) >= 1)
+                        return CallNextHookEx(nullptr, nCode, wParam, lParam);
+                    // 仅记录事件，QueuedConnection 交给 GUI 线程处理（instance 生命周期与进程一致，判空兜底）
+                    if (TaskbarWheelHooker::instance) {
+                        g_pendingWheel.fetch_add(1, std::memory_order_relaxed);
+                        emit TaskbarWheelHooker::instance->rawWheelEvent(delta > 0, topLevelHwnd);
+                    }
+                }
             }
         }
     }
@@ -70,9 +117,9 @@ void TaskbarWheelHooker::processWheelEvent(bool isUp, HWND topLevelHwnd) {
         int windows = 0;
         const auto Dash = QStringLiteral(" - ");
         if (auto dashIdx = name.lastIndexOf(Dash); dashIdx != -1) { // "Clash for Windows - 1 个运行窗口"
-            std::stringstream ss(name.mid(dashIdx + Dash.size()).toStdString());
-            ss >> windows; // 从标题手动解析真实窗口数量，程序内部由于过滤逻辑的存在，可能不准确
-            name = name.left(dashIdx);
+            // 零堆内存分配极速解析数字
+            windows = QStringView(name).sliced(dashIdx + Dash.size()).toInt();
+            name.truncate(dashIdx);
         }
         auto exePath = AppUtil::getExePathFromAppIdOrName(appid, name);
         emit tabWheelEvent(exePath, isUp, windows);
