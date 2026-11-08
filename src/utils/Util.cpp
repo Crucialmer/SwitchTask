@@ -951,12 +951,12 @@ bool isTaskbarWindow(HWND hwnd) {
         // 上限定为 32 个子窗口，防止复杂 Win32 应用或 IDE 拥有成千上万个子控件时同步递归阻塞界面。
         struct NudgeContext {
             int count = 0;
-            static constexpr int kMaxChildren = 32;
+            int maxChildren = 32;
         } ctx;
 
         EnumChildWindows(hwnd, [](HWND child, LPARAM lParam) -> BOOL {
             auto* pCtx = reinterpret_cast<NudgeContext*>(lParam);
-            if (++pCtx->count > NudgeContext::kMaxChildren)
+            if (++pCtx->count > pCtx->maxChildren)
                 return FALSE; // 达到扫描上限立即截断
 
             wchar_t className[64] = {};
