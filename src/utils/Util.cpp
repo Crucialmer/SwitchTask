@@ -583,24 +583,16 @@ namespace Util {
         }
         CloseHandle(hProcess);
 
-        // 其实`GetPackagePathByFullName`也可以，就是想随便用一下`WinRT` Just
-        using namespace winrt;
-        using namespace Windows::Management::Deployment;
-        // init_apartment(apartment_type::single_threaded); // Qt 内部已经初始化了
-
-        try {
-            PackageManager packageManager;
-            // `FindPackage`需要管理员权限，而`FindPackageForUser(L"", ...)` (当前用户)不需要
-            auto package = packageManager.FindPackageForUser(L"", hstring(packageFullName));
-            if (!package) {
-                qDebug() << "Package not found?";
-                return {};
+        // 原生 C API GetPackagePathByFullName：直接查询本地包目录，消除 WinRT PackageManager 跨进程 RPC
+        UINT32 pathLength = 0;
+        LONG rc = GetPackagePathByFullName(packageFullName, &pathLength, nullptr);
+        if (rc == ERROR_INSUFFICIENT_BUFFER && pathLength > 0) {
+            std::vector<wchar_t> pathBuffer(pathLength);
+            rc = GetPackagePathByFullName(packageFullName, &pathLength, pathBuffer.data());
+            if (rc == ERROR_SUCCESS) {
+                return QString::fromWCharArray(pathBuffer.data());
             }
-            return QString::fromStdWString(package.InstalledPath().c_str());
-        } catch (const hresult_error& ex) {
-            qWarning() << "PackageManager Error:" << QString::fromStdWString(ex.message().c_str());
         }
-
         return {};
     }
 
