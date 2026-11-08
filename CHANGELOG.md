@@ -4,6 +4,43 @@
 
 ---
 
+## [v3.2] - 2026-11-08
+
+全链路性能与输入架构最优化、macOS 26 现代化美学缩略图升级与 8K 超高分辨率完美适配。
+
+### 🚀 架构与性能优化
+
+- **输入钩子专属独立线程（Low-Level Hooks Dedicated Threads）**：
+  - 将全局低级键鼠钩子（`WH_KEYBOARD_LL` 与 `WH_MOUSE_LL`）从 Qt GUI 主线程剥离，迁移至独立的最高优先级 Win32 专属工作线程（`THREAD_PRIORITY_HIGHEST`），运行原生独立消息循环。
+  - 彻底杜绝主线程进行高负荷 D3D 渲染或缩略图绘制时阻塞键鼠输入的问题，从根本上消除了系统 `LowLevelHooksTimeout` 强制掉钩（静默注销钩子）隐患。
+- **修饰键零系统调用状态机（Zero-Syscall Modifier Tracking）**：
+  - 彻底废除按键钩子回调中频繁触发内核态切换的 `GetAsyncKeyState`。
+  - 改用 `KBDLLHOOKSTRUCT` 硬件原生标志位（`LLKHF_ALTDOWN`）与线程本地状态机跟踪 Alt/Ctrl/Shift/Win 按键状态，响应速度由毫秒级内核上下文切换降至亚微秒级纯位运算。
+- **视图节点 Diff 原地复用与呼出零堆分配（Hot Path In-Place Reuse）**：
+  - 废除每次呼出切换器时对 `QListWidget` 调用 `clear()` 全量销毁重建的开销，改为智能 Diff 增量比对并原地复用条目。
+  - 窗口合法性过滤前置窗口标题长度与样式位掩码短路，结合静态栈缓冲与 `QStringView`，实现切换器呼出热路径上的零堆内存分配。
+- **增量窗口销毁管理（WinEventHook EVENT_OBJECT_DESTROY）**：
+  - 扩展系统级窗口事件监听，实时捕获窗口销毁事件并即刻从缓存与活动列表中剔除失效句柄；固定（pinned）状态下即时就地移除对应条目。
+- **冷启动异步预热与系统解耦**：
+  - 开始菜单快捷方式与 AUMID 映射由主线程迁移至后台 `QThreadPool` 线程池异步构建，彻底消除应用启动白屏与卡顿。
+  - 彻底移除对 WinRT `PackageManager` 的跨进程 RPC 调用依赖，替换为 Windows 原生 C API `GetPackagePathByFullName`，并从工程中解绑 `windowsapp` 库。
+  - 子视口渲染唤醒（`nudgeWindowRendering`）增加 32 层遍历深度上限，精准定向 Chromium / D3D 视口，防止复杂 Win32/IDE 应用界面假死。
+  - 拆解 `Theme.h` 与 `SystemTray.h` Header-Only 巨型头文件，缩短构建时间。
+
+### 🎨 视觉与美学升级
+
+- **macOS 26 现代化大画幅缩略图**：
+  - 舞台集成模式（`ThumbnailIntegrated`）高度由 190px 大幅扩充至 **280px**，实际画幅宽度上限提升至 **720px**，16:9 缩略图实际显示面积**暴增 130%（翻倍以上）**。
+  - 网页标签页布局、文档标题、代码行结构与分栏一瞥即清，彻底告别“小邮票”式局促感。
+  - 采用 macOS 现代化连续大曲率内凹圆角（14px）与顶端 1px 内切漫反射微光线，毛玻璃悬浮层次更加深邃立体。
+- **悬浮卡片模式联动升级**：
+  - 悬浮微型卡片（`ThumbnailPopupWidget`）最大尺寸同步由 340x210 升级至 **460x280**。
+- **8K 超高分辨率与高 DPI 完美适配**：
+  - 依托 Windows 原生 `Per-Monitor V2` 感知与 Qt6 浮点 DPI 穿透策略，全矢量路径与 DirectWrite 字体渲染在 4K/8K 屏幕上纯净清晰。
+  - 原生提取 Windows Shell 256x256 巨型母图标（`SHIL_JUMBO`），在 8K @ 400% 缩放下实现物理点对点 1:1 绝对清晰呈现。
+
+---
+
 ## [v3.1] - 2026-11-07
 
 低风险缺陷修复与布局可达性，不引入新 UI。
