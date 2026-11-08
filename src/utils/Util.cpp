@@ -946,10 +946,26 @@ bool isTaskbarWindow(HWND hwnd) {
         // 绝不可调用 RedrawWindow(RDW_INTERNALPAINT)，否则会强制下发 GDI WM_PAINT 重绘，
         // 导致网页 DOM 的底层白色背景冲刷破坏 Chromium/DirectComposition 硬件视频交换链，造成 YouTube 播放区白屏。
         PostMessageW(hwnd, WM_NULL, 0, 0);
-        // 同步唤醒 Chromium 内部的 DirectComposition/D3D 子渲染视口（如 Intermediate D3D Window），促使交换链提交新帧
-        EnumChildWindows(hwnd, [](HWND child, LPARAM) -> BOOL {
-            PostMessageW(child, WM_NULL, 0, 0);
+
+        // 定向唤醒 Chromium 内部的 DirectComposition/D3D 渲染子视口（如 Intermediate D3D Window），促使交换链提交新帧。
+        // 上限定为 32 个子窗口，防止复杂 Win32 应用或 IDE 拥有成千上万个子控件时同步递归阻塞界面。
+        struct NudgeContext {
+            int count = 0;
+            static constexpr int kMaxChildren = 32;
+        } ctx;
+
+        EnumChildWindows(hwnd, [](HWND child, LPARAM lParam) -> BOOL {
+            auto* pCtx = reinterpret_cast<NudgeContext*>(lParam);
+            if (++pCtx->count > NudgeContext::kMaxChildren)
+                return FALSE; // 达到扫描上限立即截断
+
+            wchar_t className[64] = {};
+            if (GetClassNameW(child, className, 64) > 0) {
+                if (wcscmp(className, L"Intermediate D3D Window") == 0) {
+                    PostMessageW(child, WM_NULL, 0, 0);
+                }
+            }
             return TRUE;
-        }, 0);
+        }, reinterpret_cast<LPARAM>(&ctx));
     }
 } // Util

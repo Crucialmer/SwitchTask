@@ -132,7 +132,7 @@ TaskbarWheelHooker::TaskbarWheelHooker() {
         return;
     }
     instance = this;
-    AppUtil::getExePathFromAppIdOrName(); // cache
+    AppUtil::prefetchStartAppsAsync(); // 异步后台预热外壳开始菜单映射，消除主线程冷启动阻塞
 
     // 原生钩子线程的 rawWheelEvent → GUI 线程的 processWheelEvent（跨线程必须 QueuedConnection）
     connect(this, &TaskbarWheelHooker::rawWheelEvent, this, &TaskbarWheelHooker::processWheelEvent,

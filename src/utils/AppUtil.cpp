@@ -13,6 +13,9 @@
 #include <propkey.h>
 #include <atlbase.h>
 #include <QFileInfo>
+#include <QThread>
+#include <QMutex>
+#include <atomic>
 
 namespace AppUtil {
     /// 对Core子窗口进行hwnd之类的操作之后，就会脱离原本的ApplicationFrameWindow，所以很难通过关联性去查找了<br>
@@ -319,47 +322,71 @@ namespace AppUtil {
     /// 还有更奇怪的，Clash for Windows, 在getStartAppList()中的AppID是绝对路径，但是AutoAnimation获取的是"com.lbyczf.clashwin"对不上. Steam, Dingdingも<br>
     /// So: 如果AppID无匹配，则转向Name匹配<br>
     /// Name也分为多种情况：若app加入StartMenu，则有优先使用该名称（快捷方式）(e.g. Follower)；否则使用文件描述
-    QString getExePathFromAppIdOrName(const QString& appid, const QString& appName) {
-        static QHash<QString, QString> app2Path; // appid or name
-        static QHash<QString, QString> desc2Path; // description
-        static auto buildStartAppMaps = []() { // cache, 耗时
-            app2Path.clear();
-            const auto list = getStartAppList(); // build from Start Apps
-            for (const auto& [name, appId, exePath]: list) {
-                app2Path.insert(appId, exePath);
-                app2Path.insert(name, exePath);
+    struct StartAppCache {
+        QMutex mutex;
+        QHash<QString, QString> app2Path; // appid or name
+        QHash<QString, QString> desc2Path; // description
+        bool isReady = false;
+        std::atomic_bool isBuilding{false};
+    };
+    static StartAppCache g_startAppCache;
+
+    void prefetchStartAppsAsync() {
+        bool expected = false;
+        if (!g_startAppCache.isBuilding.compare_exchange_strong(expected, true))
+            return; // 已触发预取或已在进行中
+
+        auto* thread = QThread::create([] {
+            const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+            const auto list = getStartAppList();
+            {
+                QMutexLocker locker(&g_startAppCache.mutex);
+                g_startAppCache.app2Path.clear();
+                for (const auto& [name, appId, exePath]: list) {
+                    g_startAppCache.app2Path.insert(appId, exePath);
+                    g_startAppCache.app2Path.insert(name, exePath);
+                }
+                g_startAppCache.isReady = true;
             }
-        };
-        static bool startAppMapsBuilt = false;
-        if (!startAppMapsBuilt) { // init & cache（显式标志：空列表也算“已构建”，避免失败时随调用反复重建）
-            startAppMapsBuilt = true;
-            buildStartAppMaps();
-        }
+            if (SUCCEEDED(hr))
+                CoUninitialize();
+            qDebug() << "Async StartApps prefetch completed:" << list.size() << "items";
+        });
+        QObject::connect(thread, &QThread::finished, thread, &QThread::deleteLater);
+        thread->start();
+    }
+
+    QString getExePathFromAppIdOrName(const QString& appid, const QString& appName) {
+        // 触发后台异步预热（幂等，若已在运行或已完成则立即返回）
+        prefetchStartAppsAsync();
 
         if (appid.isEmpty()) return {};
         if (QFile::exists(appid)) // if appid is exe path
             return appid;
-        if (appid == "Microsoft.Windows.Explorer") // ControlPanel Explorer RunDialog 比较特殊 貌似其实都是explorer
+        if (appid == "Microsoft.Windows.Explorer") // ControlPanel Explorer RunDialog
             return "C:\\Windows\\explorer.exe";
         static QStringList BlackList;
         if (BlackList.contains(appid)) return {};
 
         int retry = 1;
         do {
-            if (auto exe = app2Path.value(appid); !exe.isEmpty()) { // 这里不判断exe是否属于`ValidWindows`，父子进程关系是下一个阶段的问题
-                qDebug() << "Get path by AppId:" << appid;
-                return exe;
-            }
-            if (auto exe = app2Path.value(appName); !exe.isEmpty()) {
-                qDebug() << "Get path by name:" << appName;
-                return exe;
-            }
-            if (auto exe = desc2Path.value(appName); !exe.isEmpty()) {
-                qDebug() << "Get path by description:" << appName;
-                return exe;
+            {
+                QMutexLocker locker(&g_startAppCache.mutex);
+                if (auto exe = g_startAppCache.app2Path.value(appid); !exe.isEmpty()) {
+                    qDebug() << "Get path by AppId:" << appid;
+                    return exe;
+                }
+                if (auto exe = g_startAppCache.app2Path.value(appName); !exe.isEmpty()) {
+                    qDebug() << "Get path by name:" << appName;
+                    return exe;
+                }
+                if (auto exe = g_startAppCache.desc2Path.value(appName); !exe.isEmpty()) {
+                    qDebug() << "Get path by description:" << appName;
+                    return exe;
+                }
             }
 
-            qDebug() << "Not Found. Try list windows' description";
+            qDebug() << "Not Found. Try list windows description";
             QSet<QString> paths;
             QHash<HWND, QString> pathMap; // 枚举时已解析路径，免去逐窗口重复查询
             const auto windows = Util::listValidWindows(&pathMap);
@@ -367,8 +394,11 @@ namespace AppUtil {
                 paths.insert(pathMap.value(hwnd));
             for (const auto& path: paths) {
                 QString description = Util::getFileDescription(path); // slow
-                desc2Path.insert(description, path);
-                if (description == appName) { // 尝试通过文件描述匹配不在StartMenu的应用
+                {
+                    QMutexLocker locker(&g_startAppCache.mutex);
+                    g_startAppCache.desc2Path.insert(description, path);
+                }
+                if (description == appName) {
                     qDebug() << "Get path by description_:" << appName;
                     return path;
                 }
@@ -376,11 +406,24 @@ namespace AppUtil {
 
             if (retry-- <= 0) break;
 
-            buildStartAppMaps(); // rebuild only once
+            // 如果后台异步尚未完成且查无结果，同步构建一次作为兜底保证
+            bool ready = false;
+            {
+                QMutexLocker locker(&g_startAppCache.mutex);
+                ready = g_startAppCache.isReady;
+            }
+            if (!ready) {
+                const auto list = getStartAppList();
+                QMutexLocker locker(&g_startAppCache.mutex);
+                for (const auto& [name, appId, exePath]: list) {
+                    g_startAppCache.app2Path.insert(appId, exePath);
+                    g_startAppCache.app2Path.insert(name, exePath);
+                }
+                g_startAppCache.isReady = true;
+            }
             qDebug() << "Not Found. Rebuild App2ExePathMap";
         } while (true);
 
-        // add to blacklist, if also failed after rebuild
         qWarning() << "Failed to find exe path for appid:" << appid;
         BlackList.append(appid);
         return {};

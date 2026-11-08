@@ -71,9 +71,11 @@ add_executable(${PROJECT_NAME} src/main.cpp
         header/utils/ComInitializer.h
         header/utils/SingleApp.h
         header/utils/Startup.h
+        src/utils/SystemTray.cpp
         header/utils/SystemTray.h
         header/utils/ConfigManager.h
         header/utils/ConfigManagerBase.h
+        src/utils/Theme.cpp
         header/utils/Theme.h
         header/utils/MacTitleBar.h
         header/utils/MacControls.h
