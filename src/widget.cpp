@@ -393,7 +393,7 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
     if (cachedThumbMode == ThumbnailIntegrated && !stageRect.isEmpty()) {
         const QRectF stageBox = QRectF(stageRect).adjusted(-2, -2, 2, 2);
         QPainterPath stagePath;
-        stagePath.addRoundedRect(stageBox, 11, 11);
+        stagePath.addRoundedRect(stageBox, 14, 14);
 
         // Apple 式暗调内嵌舞台井深度光影
         QLinearGradient stageWell(0, stageBox.top(), 0, stageBox.bottom());
@@ -406,7 +406,7 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
         // 舞台顶端 1px 内切漫反射微光线
         {
             QPainterPath stageInnerSheen;
-            stageInnerSheen.addRoundedRect(stageBox.adjusted(1, 1, -1, -1), 10, 10);
+            stageInnerSheen.addRoundedRect(stageBox.adjusted(1, 1, -1, -1), 13, 13);
             QLinearGradient sheenGrad(0, stageBox.top(), 0, stageBox.top() + 3);
             sheenGrad.setColorAt(0.0, QColor(255, 255, 255, 36));
             sheenGrad.setColorAt(1.0, Qt::transparent);
@@ -567,8 +567,8 @@ bool Widget::prepareListWidget() {
         const int count = winList.size();
         const auto avail = screen->availableGeometry();
         const int availableW = avail.width() - ListWidgetMargin.left() - ListWidgetMargin.right() - 8; // 8px 余量
-        // 留给列表的垂直空间：整屏扣掉舞台、标题与边距的大致开销（舞台按最大 190 计，偏保守）
-        const int chromeH = ListWidgetMargin.top() + 24 + 190 + kCellLabelGap + 40;
+        // 留给列表的垂直空间：整屏扣掉舞台、标题与边距的大致开销（舞台按最大 280 计，偏保守）
+        const int chromeH = ListWidgetMargin.top() + 24 + 280 + kCellLabelGap + 40;
         const int availableH = qMax(CELL_FLOOR, avail.height() - chromeH);
 
         int cell = CELL_DEFAULT;
@@ -722,7 +722,7 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
 
         // macOS 风格：面板宽度至少容纳“当前全部任务标题”的最大宽度
         {
-            constexpr int kLabelTextCap = 560;
+            constexpr int kLabelTextCap = 700;
             const QFontMetrics fm(ui->label->font());
             int maxTitleW = 0;
             for (int i = 0; i < lw->count(); ++i) {
@@ -746,11 +746,11 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
         const bool isIntegrated = (thumbMode == ThumbnailIntegrated);
 
         int stageHeightWithGap = 0;
-        constexpr int kStageH = 190;
+        constexpr int kStageH = 280;
 
         if (isIntegrated) {
-            stageHeightWithGap = kStageH + 14;
-            constexpr int kMinIntegratedW = 400;
+            stageHeightWithGap = kStageH + 16;
+            constexpr int kMinIntegratedW = 528;
             thisRect.setWidth(qMax(thisRect.width(), kMinIntegratedW));
         } else {
             if (stageThumbnail) {
@@ -786,7 +786,7 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
         this->setGeometry(thisRect);
 
         if (isIntegrated) {
-            const int actualStageW = qBound(340, this->width() - 48, 540);
+            const int actualStageW = qBound(480, this->width() - 48, 720);
             const int stageX = (this->width() - actualStageW) / 2;
             stageRect = QRect(stageX, ListWidgetMargin.top(), actualStageW, kStageH);
             updateStageThumbnailProperties();

@@ -214,10 +214,10 @@ void ThumbnailPopupWidget::updatePopupGeometry(const QRect& iconGlobalRect, QScr
     if (!screen) screen = QGuiApplication::primaryScreen();
     if (!screen) return;
 
-    constexpr int kMaxW = 340;
-    constexpr int kMaxH = 210;
-    constexpr int kMinW = 200;
-    constexpr int kMinH = 130;
+    constexpr int kMaxW = 460;
+    constexpr int kMaxH = 280;
+    constexpr int kMinW = 260;
+    constexpr int kMinH = 170;
     constexpr int kPadding = 16;
 
     QSize srcSize = querySourceSize();
