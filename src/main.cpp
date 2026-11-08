@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QFont>
 #include <windows.h>
+#include <shlobj.h>
 #include <QTimer>
 #include <QMessageBox>
 #include <qoperatingsystemversion.h>
