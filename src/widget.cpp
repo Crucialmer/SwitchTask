@@ -770,10 +770,15 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
             thisRect.setHeight(ListWidgetMargin.top() + stageHeightWithGap + lw->height() + kCellLabelGap + fm.height() + bottomPad);
         }
 
-        thisRect.moveCenter(screen->geometry().center());
+        // macOS 风格黄金视觉中心：基准以剔除任务栏后的可用工作区为准，
+        // 并向上微偏可用高度的 4.5%（1080p 下约 46px，2K 下约 62px），使大画幅缩略图刚好落在平视黄金焦点，底部留白更开阔
+        const auto availGeo = screen->availableGeometry();
+        QPoint opticalCenter = availGeo.center();
+        const int upwardOffset = qRound(availGeo.height() * 0.045);
+        opticalCenter.setY(opticalCenter.y() - upwardOffset);
+        thisRect.moveCenter(opticalCenter);
 
         // 贴边而非出屏：多行后面板会变高，垂直方向也要夹取
-        const auto availGeo = screen->availableGeometry();
         if (thisRect.left() < availGeo.left())
             thisRect.moveLeft(availGeo.left());
         else if (thisRect.right() > availGeo.right())
