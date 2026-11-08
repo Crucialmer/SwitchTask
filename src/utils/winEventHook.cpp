@@ -2,28 +2,30 @@
 #include <QDebug>
 #include <QTime>
 
-static HWINEVENTHOOK handler = nullptr;
-static WinEventCallback callback = nullptr;
+static HWINEVENTHOOK s_fgHook = nullptr;
+static HWINEVENTHOOK s_destroyHook = nullptr;
+static WinEventCallback s_callback = nullptr;
 
-void CALLBACK WinEventProc(HWINEVENTHOOK /*hWinEventHook*/, DWORD event, HWND hwnd, LONG idObject, LONG /*idChild*/,
+void CALLBACK WinEventProc(HWINEVENTHOOK /*hWinEventHook*/, DWORD event, HWND hwnd, LONG idObject, LONG idChild,
                            DWORD /*dwEventThread*/, DWORD /*dwmsEventTime*/) {
-    if (idObject != OBJID_WINDOW) // 确保对象是窗口，而不是子对象（如按钮）
+    // 仅监听顶级窗口级别事件（过滤内部子控件、按钮、caret等海量事件）
+    if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF)
         return;
 
-    if (callback)
-        callback(event, hwnd);
+    if (s_callback)
+        s_callback(event, hwnd);
 }
 
 bool setWinEventHook(WinEventCallback _callback) {
-    if (handler) {
+    if (s_fgHook || s_destroyHook) {
         qWarning() << "WinEventHook already set. Unhook first.";
         return false;
     }
 
-    ::callback = std::move(_callback);
+    s_callback = std::move(_callback);
 
-    // WINEVENT_OUTOFCONTEXT：表示回调函数是在调用线程的上下文中调用的，而不是在生成事件的线程的上下文中。这种方式不需要DLL模块句柄（hmodWinEventProc 设置为 NULL）
-    handler = SetWinEventHook(
+    // 监听前台窗口切换事件
+    s_fgHook = SetWinEventHook(
         EVENT_SYSTEM_FOREGROUND,
         EVENT_SYSTEM_FOREGROUND,
         nullptr,
@@ -33,17 +35,34 @@ bool setWinEventHook(WinEventCallback _callback) {
         WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS // 跳过自身进程的事件
     );
 
-    qDebug() << "Set WinEventHook.";
+    // 监听顶级窗口销毁事件（实时清理活跃历史与驻留列表项）
+    s_destroyHook = SetWinEventHook(
+        EVENT_OBJECT_DESTROY,
+        EVENT_OBJECT_DESTROY,
+        nullptr,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS // 跳过自身进程的事件
+    );
 
-    return handler != nullptr;
+    qDebug() << "Set WinEventHook (Foreground + Destroy).";
+
+    return s_fgHook != nullptr;
 }
 
 void unhookWinEvent() {
-    if (!handler) return;
+    if (!s_fgHook && !s_destroyHook) return;
 
-    callback = nullptr;
-    UnhookWinEvent(handler);
-    handler = nullptr;
+    s_callback = nullptr;
+    if (s_fgHook) {
+        UnhookWinEvent(s_fgHook);
+        s_fgHook = nullptr;
+    }
+    if (s_destroyHook) {
+        UnhookWinEvent(s_destroyHook);
+        s_destroyHook = nullptr;
+    }
 
     qDebug() << "Unhook win event.";
 }

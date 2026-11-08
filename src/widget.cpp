@@ -459,6 +459,37 @@ void Widget::notifyForegroundChanged(HWND hwnd, const QString& knownPath, Foregr
             << Util::getWindowTitle(hwnd) << Util::getClassName(hwnd) << knownPath;
 }
 
+/// 窗口销毁事件通知：立即清理失效活跃序与同组顺序，若处于弹窗显示状态则实时移除条目
+void Widget::notifyWindowDestroyed(HWND hwnd) {
+    if (!hwnd || hwnd == this->hWnd()) return;
+
+    for (auto it = winActiveOrder.begin(); it != winActiveOrder.end();) {
+        it.value().remove(hwnd);
+        if (it.value().isEmpty())
+            it = winActiveOrder.erase(it);
+        else
+            ++it;
+    }
+    groupWindowOrder.removeAll(hwnd);
+
+    // 如果处于显示状态且拥有列表，实时剔除被关闭的窗口项
+    if (this->isVisible() && lw) {
+        for (int i = 0; i < lw->count(); ++i) {
+            auto* item = lw->item(i);
+            if (item && item->data(Qt::UserRole).value<WindowInfo>().hwnd == hwnd) {
+                delete lw->takeItem(i);
+                if (lw->count() == 0) {
+                    pinned = false;
+                    hide();
+                } else {
+                    relayoutGeometry();
+                }
+                break;
+            }
+        }
+    }
+}
+
 /// collect, filter, sort Windows for presentation（每个窗口独立一项，按各自最近活跃排序）
 QList<WindowInfo> Widget::prepareWindowList() {
     QHash<HWND, QString> pathMap; // 枚举时顺带解析进程路径（单趟完成，避免逐窗口重复查询）
@@ -484,6 +515,7 @@ QList<WindowInfo> Widget::prepareWindowList() {
     }
 
     QList<WindowInfo> winList;
+    winList.reserve(list.size());
     for (auto hwnd: list) {
         if (hwnd == this->hWnd()) continue; // skip self
         const auto path = pathMap.value(hwnd); // 路径已在枚举（过滤）时解析，不再重复查询
@@ -559,11 +591,7 @@ bool Widget::prepareListWidget() {
                     << ", cell" << cell << ", icon" << icon;
     }
 
-    lw->setUpdatesEnabled(false); // 批量装配期间关闭视图重绘，消除每次 addItem 触发的多余布局计算与刷新开销
-    lw->clear();
-    for (auto& info: winList) {
-        // 图标：统一应用图标（jumbo 预取缓存，锐利）；
-        // USE_WINDOW_ICON=true 时优先窗口自身图标（可区分文件夹/头像，但 32px 源图放大偏糊）
+    auto resolveIcon = [&](const WindowInfo& info) -> QIcon {
         QIcon icon;
         if (USE_WINDOW_ICON) {
             auto pm = Util::getWindowIcon(info.hwnd);
@@ -581,10 +609,54 @@ bool Widget::prepareListWidget() {
                 }
             }
         }
-        auto item = new QListWidgetItem(icon, {}); // null != "", which will completely hide text area
-        item->setData(Qt::UserRole, QVariant::fromValue(info));
-        item->setSizeHint(lw->gridSize()); // 决定了delegate的绘制区域，比grid小的话，paintRect就不居中了，而且update也不及时
-//        item->setFlags(item->flags() & ~Qt::ItemIsSelectable); // 不可选中
+        return icon;
+    };
+
+    lw->setUpdatesEnabled(false); // 批量装配期间关闭视图重绘，消除多余布局计算与刷新开销
+    const int newCount = winList.size();
+    const int oldCount = lw->count();
+
+    // 1. 缩减多余项
+    while (lw->count() > newCount) {
+        delete lw->takeItem(lw->count() - 1);
+    }
+
+    // 2. 复用并就地更新已有项（消除 blind clear 造成的频繁销毁与对象重分配）
+    for (int i = 0; i < qMin(oldCount, newCount); ++i) {
+        auto* item = lw->item(i);
+        const auto oldInfo = item->data(Qt::UserRole).value<WindowInfo>();
+        const auto& newInfo = winList.at(i);
+
+        const bool sameWindow = (oldInfo.hwnd == newInfo.hwnd);
+        const bool samePath = (oldInfo.exePath == newInfo.exePath);
+        const bool sameTitle = (oldInfo.title == newInfo.title);
+        const bool sameGrid = (item->sizeHint() == lw->gridSize());
+
+        if (sameWindow && samePath && sameTitle && sameGrid) {
+            // 完全一致，跳过图标生成与数据序列化
+            continue;
+        }
+
+        if (sameWindow && samePath) {
+            // 窗口未变仅标题变动
+            item->setData(Qt::UserRole, QVariant::fromValue(newInfo));
+            if (!sameGrid)
+                item->setSizeHint(lw->gridSize());
+            continue;
+        }
+
+        // 窗口发生变更：更新图标与数据
+        item->setIcon(resolveIcon(newInfo));
+        item->setData(Qt::UserRole, QVariant::fromValue(newInfo));
+        item->setSizeHint(lw->gridSize());
+    }
+
+    // 3. 追加新增项
+    for (int i = oldCount; i < newCount; ++i) {
+        const auto& newInfo = winList.at(i);
+        auto* item = new QListWidgetItem(resolveIcon(newInfo), {});
+        item->setData(Qt::UserRole, QVariant::fromValue(newInfo));
+        item->setSizeHint(lw->gridSize());
         lw->addItem(item);
     }
     lw->setUpdatesEnabled(true);

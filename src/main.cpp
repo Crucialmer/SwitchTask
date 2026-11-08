@@ -70,6 +70,11 @@ int main(int argc, char* argv[]) {
                      winSwitcher, &Widget::clearGroupWindowOrder, Qt::QueuedConnection);
 
     setWinEventHook([winSwitcher](DWORD event, HWND hwnd) {
+        if (event == EVENT_OBJECT_DESTROY) {
+            winSwitcher->notifyWindowDestroyed(hwnd);
+            return;
+        }
+
         // 某些情况下，Hook拦截不到Alt+Tab（如VMware获取焦点且虚拟机开启时，即便focus在标题栏上）
         // （GPT建议RegisterRawInputDevices，不知道有没有效果，感觉比较危险）
         // 此时需要通过监控前台窗口检测系统的任务切换窗口唤出，并弹出本程序

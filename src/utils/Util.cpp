@@ -328,45 +328,60 @@ namespace Util {
     /// @param skipVisibleCheck skip IsWindowVisible check<br>
     /// 在窗口创建过程中，会触发 EVENT_SYSTEM_FOREGROUND，但是这瞬间 IsWindowVisible 为false
     bool isWindowAcceptable(HWND hwnd, bool skipVisibleCheck, QString* pathOut, QString* classOut) {
-        static const QStringList BlackList_ClassName = {
-            "Progman",
-            "Windows.UI.Core.CoreWindow", // 过滤UWP Core，从Frame入手
-            "CEF-OSC-WIDGET",
-            "WorkerW", // explorer.exe
-            "Shell_TrayWnd" // explorer.exe
-        };
-        static const QStringList BlackList_ExePath = {
-            R"(C:\Windows\System32\wscript.exe)"
-        };
-        static const QStringList BlackList_FileName = { // TODO by user from config
-            "Nahimic3.exe",
-            "Follower.exe",
-            "QQ Follower.exe"
-        };
-        LONG exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-        QString className;
+        // 1. 超高频快筛：绝大多数系统后台无用窗口没有标题，立即拒绝（纯内存属性查询，耗时 ~0.001ms）
+        if (GetWindowTextLengthW(hwnd) <= 0)
+            return false;
 
-        if ((skipVisibleCheck || IsWindowVisible(hwnd))
-            && !isWindowCloaked(hwnd)
-            // 窗口显示在任务栏的基本规则：https://devblogs.microsoft.com/oldnewthing/20031229-00/?p=41283
-            && (!GetWindow(hwnd, GW_OWNER) || exStyle & WS_EX_APPWINDOW) // OmApSvcBroker, QQ主面板（意料之外）; 保留：系统属性（Path）
-            && (exStyle & WS_EX_TOOLWINDOW) == 0 // 非工具窗口，但其实有些工具窗口没有这个这个属性
-            //            && (exStyle & WS_EX_TOPMOST) == 0 // 非置顶窗口
-            && GetWindowTextLength(hwnd) > 0
-            && (className = getClassName(hwnd)).size() > 0 // cache
-            && !BlackList_ClassName.contains(className)
-            && !className.startsWith("imestatuspop_classname{") // 输入法（的推销弹窗）https://s3.bmp.ovh/imgs/2024/12/23/bb136fde101a41ce.png
-        ) {
-            auto path = getWindowProcessPath(hwnd, className); // 耗时操作，减少次数；类名已在上面取得，免二次查询
-            if (!BlackList_ExePath.contains(path) && !BlackList_FileName.contains(QFileInfo(path).fileName())) {
-                if (pathOut)
-                    *pathOut = path; // 带回路径：调用方（枚举）免去再次查询
-                if (classOut)
-                    *classOut = className; // 带回类名：调用方（枚举）免去再次查询
-                return true;
-            }
+        // 2. 样式快筛：工具窗口和无 APPWINDOW 标志的被拥有窗口排除在任务切换器之外
+        const LONG exStyle = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        if (exStyle & WS_EX_TOOLWINDOW)
+            return false;
+        if (GetWindow(hwnd, GW_OWNER) && !(exStyle & WS_EX_APPWINDOW))
+            return false;
+
+        // 3. 可见性与 Cloaked 过滤（放在标题与样式之后，避免对无标题后台窗口发起昂贵的 DWM IPC）
+        if (!skipVisibleCheck && !IsWindowVisible(hwnd))
+            return false;
+        if (isWindowCloaked(hwnd))
+            return false;
+
+        // 4. 类名获取与黑名单零堆分配初筛
+        wchar_t clsBuf[128] = {};
+        const int clsLen = GetClassNameW(hwnd, clsBuf, 128);
+        if (clsLen <= 0)
+            return false;
+
+        if (wcscmp(clsBuf, L"Progman") == 0 ||
+            wcscmp(clsBuf, L"WorkerW") == 0 ||
+            wcscmp(clsBuf, L"Shell_TrayWnd") == 0 ||
+            wcscmp(clsBuf, L"Windows.UI.Core.CoreWindow") == 0 ||
+            wcscmp(clsBuf, L"CEF-OSC-WIDGET") == 0 ||
+            wcsncmp(clsBuf, L"imestatuspop_classname{", 23) == 0) {
+            return false;
         }
-        return false;
+
+        const QString className = QString::fromWCharArray(clsBuf, clsLen);
+        const QString path = getWindowProcessPath(hwnd, className);
+        if (path.isEmpty())
+            return false;
+
+        // 5. 路径与可执行文件名零堆分配过滤
+        if (path.compare(QLatin1String(R"(C:\Windows\System32\wscript.exe)"), Qt::CaseInsensitive) == 0)
+            return false;
+
+        const int slashIdx = path.lastIndexOf(QLatin1Char('\\'));
+        const QStringView fnView = (slashIdx >= 0) ? QStringView(path).sliced(slashIdx + 1) : QStringView(path);
+        if (fnView.compare(u"Nahimic3.exe", Qt::CaseInsensitive) == 0 ||
+            fnView.compare(u"Follower.exe", Qt::CaseInsensitive) == 0 ||
+            fnView.compare(u"QQ Follower.exe", Qt::CaseInsensitive) == 0) {
+            return false;
+        }
+
+        if (pathOut)
+            *pathOut = path;
+        if (classOut)
+            *classOut = className;
+        return true;
     }
 
     namespace {

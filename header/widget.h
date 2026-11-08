@@ -64,6 +64,7 @@ public:
     void notifyForegroundChanged(HWND hwnd, ForegroundChangeSource source);
     /// 已知进程路径的捷径（如弹窗条目自带的 exePath）：跳过滤镜与路径查询，直接记录（条目已通过枚举过滤）
     void notifyForegroundChanged(HWND hwnd, const QString& knownPath, ForegroundChangeSource source);
+    void notifyWindowDestroyed(HWND hwnd);
 
     HWND hWnd() { return (HWND) winId(); }
 
