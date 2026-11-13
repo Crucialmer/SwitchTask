@@ -214,10 +214,11 @@ void ThumbnailPopupWidget::updatePopupGeometry(const QRect& iconGlobalRect, QScr
     if (!screen) screen = QGuiApplication::primaryScreen();
     if (!screen) return;
 
-    constexpr int kMaxW = 600;
-    constexpr int kMaxH = 380;
-    constexpr int kMinW = 300;
-    constexpr int kMinH = 190;
+    const QRect avail = screen->availableGeometry();
+    const int kMaxW = qBound(540, qRound(avail.width() * 0.35), 2400);
+    const int kMaxH = qBound(340, qRound(avail.height() * 0.35), 1500);
+    const int kMinW = qRound(kMaxW * 0.45);
+    const int kMinH = qRound(kMaxH * 0.45);
     constexpr int kPadding = 16;
 
     QSize srcSize = querySourceSize();
@@ -242,7 +243,6 @@ void ThumbnailPopupWidget::updatePopupGeometry(const QRect& iconGlobalRect, QScr
     int x = iconCenterX - cardW / 2;
     int y = iconGlobalRect.top() - cardH - 12;
 
-    QRect avail = screen->availableGeometry();
     if (x < avail.left() + 8) x = avail.left() + 8;
     if (x + cardW > avail.right() - 8) x = avail.right() - 8 - cardW;
     if (y < avail.top() + 8) {
