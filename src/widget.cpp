@@ -567,9 +567,9 @@ bool Widget::prepareListWidget() {
         const int count = winList.size();
         const auto avail = screen->availableGeometry();
         const int availableW = avail.width() - ListWidgetMargin.left() - ListWidgetMargin.right() - 8; // 8px 余量
-        // 留给列表的垂直空间：整屏扣掉自适应大舞台、标题与边距的大致开销（舞台高度随屏幕可用高度 35% 响应式伸缩）
+        // 留给列表的垂直空间：整屏扣掉自适应大舞台、标题与边距的大致开销（舞台高度随屏幕可用高度 50% 响应式伸缩）
         const bool isIntegrated = (CFG.getThumbnailMode() == ThumbnailIntegrated);
-        const int estStageH = isIntegrated ? qBound(280, qRound(avail.height() * 0.35), 420) : 0;
+        const int estStageH = isIntegrated ? qBound(280, qRound(avail.height() * 0.50), 520) : 0;
         const int chromeH = ListWidgetMargin.top() + 24 + estStageH + kCellLabelGap + 40;
         const int availableH = qMax(CELL_FLOOR, avail.height() - chromeH);
 
@@ -580,6 +580,18 @@ bool Widget::prepareListWidget() {
             --cell;
             perRow = qMax(1, availableW / cell);
             rows = (count + perRow - 1) / perRow;
+        }
+
+        // 若多行换行且启用大舞台，舞台适度让渡垂直空间（回退至 38%），确保底部留白开阔呼吸感
+        if (rows > 1 && isIntegrated) {
+            const int multiStageH = qBound(280, qRound(avail.height() * 0.38), 400);
+            const int multiChromeH = ListWidgetMargin.top() + 24 + multiStageH + kCellLabelGap + 40;
+            const int multiAvailH = qMax(CELL_FLOOR, avail.height() - multiChromeH);
+            while (rows * cell > multiAvailH && cell > CELL_FLOOR) {
+                --cell;
+                perRow = qMax(1, availableW / cell);
+                rows = (count + perRow - 1) / perRow;
+            }
         }
 
         itemsPerRow = perRow;
@@ -724,7 +736,7 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
 
         // macOS 风格：面板宽度至少容纳“当前全部任务标题”的最大宽度
         {
-            constexpr int kLabelTextCap = 840;
+            constexpr int kLabelTextCap = 1020;
             const QFontMetrics fm(ui->label->font());
             int maxTitleW = 0;
             for (int i = 0; i < lw->count(); ++i) {
@@ -748,8 +760,12 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
         const bool isIntegrated = (thumbMode == ThumbnailIntegrated);
 
         const auto availGeo = screen->availableGeometry();
-        // 方案 C：macOS 智能自适应响应式画幅（高度随工作区可用高度 35% 伸缩，基准下限 280px，上限 420px）
-        const int dynamicStageH = isIntegrated ? qBound(280, qRound(availGeo.height() * 0.35), 420) : 0;
+        // 50% 巨幕响应式：高度随工作区可用高度 50% 动态计算（单行上限 520px；多行折行时让渡至 38% 上限 400px）
+        const int count = lw->count();
+        const int rows = (itemsPerRow > 0 && count > 0) ? ((count + itemsPerRow - 1) / itemsPerRow) : 1;
+        const double stageRatio = (rows > 1) ? 0.38 : 0.50;
+        const int stageMaxH = (rows > 1) ? 400 : 520;
+        const int dynamicStageH = isIntegrated ? qBound(280, qRound(availGeo.height() * stageRatio), stageMaxH) : 0;
         const int stageHeightWithGap = dynamicStageH > 0 ? (dynamicStageH + 16) : 0;
 
         if (isIntegrated) {
