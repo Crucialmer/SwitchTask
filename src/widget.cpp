@@ -389,11 +389,11 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
         painter.drawPath(inner);
     }
 
-    // 方案 2：macOS 26 舞台集成卡片背景衬底与微发光描边（默认推荐旗舰模式）
+    // 方案 2：macOS 舞台集成卡片背景衬底与微发光描边（默认推荐旗舰模式）
     if (cachedThumbMode == ThumbnailIntegrated && !stageRect.isEmpty()) {
         const QRectF stageBox = QRectF(stageRect).adjusted(-2, -2, 2, 2);
         QPainterPath stagePath;
-        stagePath.addRoundedRect(stageBox, 14, 14);
+        stagePath.addRoundedRect(stageBox, 16, 16);
 
         // Apple 式暗调内嵌舞台井深度光影
         QLinearGradient stageWell(0, stageBox.top(), 0, stageBox.bottom());
@@ -406,7 +406,7 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
         // 舞台顶端 1px 内切漫反射微光线
         {
             QPainterPath stageInnerSheen;
-            stageInnerSheen.addRoundedRect(stageBox.adjusted(1, 1, -1, -1), 13, 13);
+            stageInnerSheen.addRoundedRect(stageBox.adjusted(1, 1, -1, -1), 15, 15);
             QLinearGradient sheenGrad(0, stageBox.top(), 0, stageBox.top() + 3);
             sheenGrad.setColorAt(0.0, QColor(255, 255, 255, 36));
             sheenGrad.setColorAt(1.0, Qt::transparent);
@@ -418,7 +418,7 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
         if (!stageThumbnail || !stageTargetHwnd || !IsWindow(stageTargetHwnd)) {
             painter.setPen(QColor(255, 255, 255, 140));
             QFont f = painter.font();
-            f.setPointSize(9);
+            f.setPointSize(10);
             painter.setFont(f);
             painter.drawText(stageRect, Qt::AlignCenter, QStringLiteral("窗口已最小化或暂无实时画面"));
         }
@@ -567,8 +567,10 @@ bool Widget::prepareListWidget() {
         const int count = winList.size();
         const auto avail = screen->availableGeometry();
         const int availableW = avail.width() - ListWidgetMargin.left() - ListWidgetMargin.right() - 8; // 8px 余量
-        // 留给列表的垂直空间：整屏扣掉舞台、标题与边距的大致开销（舞台按最大 280 计，偏保守）
-        const int chromeH = ListWidgetMargin.top() + 24 + 280 + kCellLabelGap + 40;
+        // 留给列表的垂直空间：整屏扣掉自适应大舞台、标题与边距的大致开销（舞台高度随屏幕可用高度 35% 响应式伸缩）
+        const bool isIntegrated = (CFG.getThumbnailMode() == ThumbnailIntegrated);
+        const int estStageH = isIntegrated ? qBound(280, qRound(avail.height() * 0.35), 420) : 0;
+        const int chromeH = ListWidgetMargin.top() + 24 + estStageH + kCellLabelGap + 40;
         const int availableH = qMax(CELL_FLOOR, avail.height() - chromeH);
 
         int cell = CELL_DEFAULT;
@@ -722,7 +724,7 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
 
         // macOS 风格：面板宽度至少容纳“当前全部任务标题”的最大宽度
         {
-            constexpr int kLabelTextCap = 700;
+            constexpr int kLabelTextCap = 840;
             const QFontMetrics fm(ui->label->font());
             int maxTitleW = 0;
             for (int i = 0; i < lw->count(); ++i) {
@@ -745,13 +747,16 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
         cachedThumbMode = thumbMode;
         const bool isIntegrated = (thumbMode == ThumbnailIntegrated);
 
-        int stageHeightWithGap = 0;
-        constexpr int kStageH = 280;
+        const auto availGeo = screen->availableGeometry();
+        // 方案 C：macOS 智能自适应响应式画幅（高度随工作区可用高度 35% 伸缩，基准下限 280px，上限 420px）
+        const int dynamicStageH = isIntegrated ? qBound(280, qRound(availGeo.height() * 0.35), 420) : 0;
+        const int stageHeightWithGap = dynamicStageH > 0 ? (dynamicStageH + 16) : 0;
 
         if (isIntegrated) {
-            stageHeightWithGap = kStageH + 16;
-            constexpr int kMinIntegratedW = 528;
-            thisRect.setWidth(qMax(thisRect.width(), kMinIntegratedW));
+            // 响应式宽幅基准：保证舞台即使在 16:9 甚至超宽屏下也有充足展开宽度
+            const int minStageW = qRound(dynamicStageH * 1.78);
+            const int minIntegratedW = minStageW + ListWidgetMargin.left() + ListWidgetMargin.right();
+            thisRect.setWidth(qMax(thisRect.width(), minIntegratedW));
         } else {
             if (stageThumbnail) {
                 DwmUnregisterThumbnail(stageThumbnail);
@@ -772,7 +777,6 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
 
         // macOS 风格黄金视觉中心：基准以剔除任务栏后的可用工作区为准，
         // 并向上微偏可用高度的 4.5%（1080p 下约 46px，2K 下约 62px），使大画幅缩略图刚好落在平视黄金焦点，底部留白更开阔
-        const auto availGeo = screen->availableGeometry();
         QPoint opticalCenter = availGeo.center();
         const int upwardOffset = qRound(availGeo.height() * 0.045);
         opticalCenter.setY(opticalCenter.y() - upwardOffset);
@@ -791,9 +795,11 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
         this->setGeometry(thisRect);
 
         if (isIntegrated) {
-            const int actualStageW = qBound(480, this->width() - 48, 720);
+            const int minStageW = qRound(dynamicStageH * 1.78);
+            const int maxStageW = qMin(availGeo.width() - 64, qRound(dynamicStageH * 2.4));
+            const int actualStageW = qBound(minStageW, this->width() - 48, maxStageW);
             const int stageX = (this->width() - actualStageW) / 2;
-            stageRect = QRect(stageX, ListWidgetMargin.top(), actualStageW, kStageH);
+            stageRect = QRect(stageX, ListWidgetMargin.top(), actualStageW, dynamicStageH);
             updateStageThumbnailProperties();
         }
 
