@@ -92,6 +92,9 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     lw->viewport()->installEventFilter(this);
     // 悬停实时选中：开启 viewport 的鼠标跟踪——无按键按下的移动事件才会投递（eventFilter 的 MouseMove 分支依赖）
     lw->viewport()->setMouseTracking(true);
+    setMouseTracking(true); // 开启大面板鼠标跟踪，感知鼠标移入舞台区
+    ui->label->installEventFilter(this);
+    ui->label->setCursor(Qt::PointingHandCursor);
 
     // 方案 1 悬浮卡片窗口改为按需懒加载（默认方案 2 舞台模式下零额外窗口句柄开销）
     popupWidget = nullptr;
@@ -355,6 +358,45 @@ void Widget::keyReleaseEvent(QKeyEvent* event) {
     QWidget::keyReleaseEvent(event);
 }
 
+void Widget::mousePressEvent(QMouseEvent* event) {
+    if (this->isVisible() && !stageRect.isEmpty() && stageRect.contains(event->pos())) {
+        if (event->button() == Qt::LeftButton) {
+            Util::armClickShield(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 100);
+            qInfo() << "Stage preview clicked -> switch to current window";
+            switchToCurrentItem();
+            event->accept();
+            return;
+        } else if (event->button() == Qt::MiddleButton) {
+            qInfo() << "Stage preview middle-clicked -> close current window";
+            closeCurrentItem();
+            event->accept();
+            return;
+        }
+    }
+    QWidget::mousePressEvent(event);
+}
+
+void Widget::mouseMoveEvent(QMouseEvent* event) {
+    const bool inStage = this->isVisible() && !stageRect.isEmpty() && stageRect.contains(event->pos());
+    if (inStage) {
+        setCursor(Qt::PointingHandCursor);
+    } else {
+        unsetCursor();
+    }
+    if (!stageRect.isEmpty()) {
+        update(stageRect.adjusted(-4, -4, 4, 4)); // 触发舞台外发光边框动态微光渲染
+    }
+    QWidget::mouseMoveEvent(event);
+}
+
+void Widget::leaveEvent(QEvent* event) {
+    unsetCursor();
+    if (!stageRect.isEmpty()) {
+        update(stageRect.adjusted(-4, -4, 4, 4));
+    }
+    QWidget::leaveEvent(event);
+}
+
 void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
@@ -395,12 +437,14 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
         QPainterPath stagePath;
         stagePath.addRoundedRect(stageBox, 16, 16);
 
+        const bool isStageHovered = !stageRect.isEmpty() && stageRect.contains(mapFromGlobal(QCursor::pos()));
+
         // Apple 式暗调内嵌舞台井深度光影
         QLinearGradient stageWell(0, stageBox.top(), 0, stageBox.bottom());
         stageWell.setColorAt(0.0, QColor(0, 0, 0, 56));
         stageWell.setColorAt(1.0, QColor(0, 0, 0, 36));
         painter.setBrush(stageWell);
-        painter.setPen(QPen(QColor(255, 255, 255, 26), 1));
+        painter.setPen(QPen(isStageHovered ? QColor(255, 255, 255, 52) : QColor(255, 255, 255, 26), 1));
         painter.drawPath(stagePath);
 
         // 舞台顶端 1px 内切漫反射微光线
@@ -408,7 +452,7 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
             QPainterPath stageInnerSheen;
             stageInnerSheen.addRoundedRect(stageBox.adjusted(1, 1, -1, -1), 15, 15);
             QLinearGradient sheenGrad(0, stageBox.top(), 0, stageBox.top() + 3);
-            sheenGrad.setColorAt(0.0, QColor(255, 255, 255, 36));
+            sheenGrad.setColorAt(0.0, isStageHovered ? QColor(255, 255, 255, 64) : QColor(255, 255, 255, 36));
             sheenGrad.setColorAt(1.0, Qt::transparent);
             painter.setPen(QPen(QBrush(sheenGrad), 1));
             painter.setBrush(Qt::NoBrush);
@@ -938,6 +982,21 @@ QList<HWND> Widget::buildGroupWindowOrder(const QString& exePath) {
 }
 
 bool Widget::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == ui->label && event->type() == QEvent::MouseButtonPress) {
+        auto* me = static_cast<QMouseEvent*>(event);
+        if (this->isVisible()) {
+            if (me->button() == Qt::LeftButton) {
+                Util::armClickShield(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 100);
+                qInfo() << "Label clicked -> switch to current window";
+                switchToCurrentItem();
+                return true;
+            } else if (me->button() == Qt::MiddleButton) {
+                qInfo() << "Label middle-clicked -> close current window";
+                closeCurrentItem();
+                return true;
+            }
+        }
+    }
     if ((watched == lw || watched == lw->viewport()) && event->type() == QEvent::MouseButtonPress) {
         // 单击=直接切换（用户裁决；双击效果已废除）：左键点在图标上即切换并隐藏。
         // 接收者可能是 listWidget 或其 viewport（鼠标事件的实际接收者是后者）；
@@ -1237,6 +1296,19 @@ void Widget::updateThumbnailForCurrentItem() {
         }
         if (!popupWidget) {
             popupWidget = new ThumbnailPopupWidget(nullptr);
+            connect(popupWidget, &ThumbnailPopupWidget::windowActivated, this, [this](HWND hwnd) {
+                if (this->isVisible()) {
+                    Util::armClickShield(QGuiApplication::styleHints()->mouseDoubleClickInterval() + 100);
+                    Util::switchToWindow(hwnd);
+                    pinned = false;
+                    hide();
+                }
+            });
+            connect(popupWidget, &ThumbnailPopupWidget::windowCloseRequested, this, [this](HWND) {
+                if (this->isVisible()) {
+                    closeCurrentItem();
+                }
+            });
         }
         const auto itemRect = lw->visualItemRect(item);
         const QRect globalRect(lw->mapToGlobal(itemRect.topLeft()), itemRect.size());

@@ -7,6 +7,7 @@
 #include <QPen>
 #include <QResizeEvent>
 #include <QHideEvent>
+#include <QMouseEvent>
 #include <QEasingCurve>
 #include <QApplication>
 #include <QDebug>
@@ -21,6 +22,7 @@ ThumbnailPopupWidget::ThumbnailPopupWidget(QWidget* parent)
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_ShowWithoutActivating);
     setWindowTitle("SwitchTask Preview");
+    setCursor(Qt::PointingHandCursor);
 
     HWND hwnd = (HWND)winId();
     if (hwnd) {
@@ -269,6 +271,21 @@ void ThumbnailPopupWidget::resizeEvent(QResizeEvent* event) {
 void ThumbnailPopupWidget::hideEvent(QHideEvent* event) {
     QWidget::hideEvent(event);
     releaseThumbnail();
+}
+
+void ThumbnailPopupWidget::mousePressEvent(QMouseEvent* event) {
+    if (m_targetHwnd && IsWindow(m_targetHwnd)) {
+        if (event->button() == Qt::LeftButton) {
+            emit windowActivated(m_targetHwnd);
+            event->accept();
+            return;
+        } else if (event->button() == Qt::MiddleButton) {
+            emit windowCloseRequested(m_targetHwnd);
+            event->accept();
+            return;
+        }
+    }
+    QWidget::mousePressEvent(event);
 }
 
 void ThumbnailPopupWidget::paintEvent(QPaintEvent*) {

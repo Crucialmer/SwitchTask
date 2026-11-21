@@ -12,12 +12,17 @@
 class QPaintEvent;
 class QResizeEvent;
 class QHideEvent;
+class QMouseEvent;
 
 /// 方案 1：macOS 26 专属悬浮微型卡片（Floating Preview Island）
 /// 直接作为 Top-Level 顶层无边框窗口注册 DWM 缩略图（杜绝 WS_CHILD 导致的 E_INVALIDARG 失败）
 class ThumbnailPopupWidget : public QWidget {
     Q_OBJECT
     Q_PROPERTY(QRect geometry READ geometry WRITE setGeometry)
+
+signals:
+    void windowActivated(HWND hwnd);
+    void windowCloseRequested(HWND hwnd);
 
 public:
     explicit ThumbnailPopupWidget(QWidget* parent = nullptr);
@@ -40,6 +45,7 @@ protected:
     void paintEvent(QPaintEvent* event) override;
     void hideEvent(QHideEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
 
 private:
     void updateThumbnailProperties();
