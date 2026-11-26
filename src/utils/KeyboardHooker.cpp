@@ -165,9 +165,7 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 }
             }
         } else if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
-            auto* pKeyBoard = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
-
-            // 跟踪修饰键释放状态（零系统调用）
+            // 跟踪修饰键释放状态（零系统调用；复用外层 pKeyBoard，消除 MSVC C4456 遮蔽警告）
             if (pKeyBoard->vkCode == VK_LMENU || pKeyBoard->vkCode == VK_RMENU || pKeyBoard->vkCode == VK_MENU)
                 s_altDown = false;
             else if (pKeyBoard->vkCode == VK_LCONTROL || pKeyBoard->vkCode == VK_RCONTROL || pKeyBoard->vkCode == VK_CONTROL)

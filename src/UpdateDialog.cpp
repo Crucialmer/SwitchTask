@@ -405,7 +405,7 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
         qDebug() << "Download progress" << bytesReceived << bytesTotal;
         if (bytesTotal > 0) {
             ui->progressBar->setMaximum(1000);
-            const int scaled = static_cast<int>(qBound<qint64>(0, (bytesReceived * 1000) / bytesTotal, 1000));
+            const int scaled = static_cast<int>(qBound(qint64{0}, (bytesReceived * 1000) / bytesTotal, qint64{1000}));
             ui->progressBar->setValue(scaled);
         } else {
             ui->progressBar->setMaximum(0);
@@ -414,7 +414,7 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
         const auto toMB = [](qint64 b) {
             return QString::number(static_cast<double>(b) / (1024.0 * 1024.0), 'f', 1) + " MB";
         };
-        const int pct = bytesTotal > 0 ? static_cast<int>(qBound<qint64>(0, bytesReceived * 100 / bytesTotal, 100)) : 0;
+        const int pct = bytesTotal > 0 ? static_cast<int>(qBound(qint64{0}, bytesReceived * 100 / bytesTotal, qint64{100})) : 0;
         ui->label_progress->setText(QStringLiteral("正在下载更新包... %1 / %2 (%3%)")
             .arg(toMB(bytesReceived), toMB(bytesTotal), QString::number(pct)));
     });
