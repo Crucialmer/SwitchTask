@@ -9,6 +9,7 @@
 #include <QFrame>
 #include <QTimer>
 #include <QPropertyAnimation>
+#include <QParallelAnimationGroup>
 #include <QEasingCurve>
 #include <QPainter>
 #include <QMouseEvent>
@@ -92,6 +93,7 @@ MacToast::MacToast(
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_StyledBackground, true);
     setAttribute(Qt::WA_ShowWithoutActivating); // 绝对不抢夺前台活动焦点
+    setWindowOpacity(0.0); // 防止入场动画启动前 1 帧以不透明态闪现
     setCursor(Qt::PointingHandCursor);
     setFixedSize(340, 68);
 
@@ -153,21 +155,36 @@ void MacToast::showEvent(QShowEvent* event) {
     Util::setWindowRoundCorner(reinterpret_cast<HWND>(winId()));
     setStyleSheet(Theme::macDialogStyleSheet());
 
-    // 优雅入场淡入动效
-    auto* anim = new QPropertyAnimation(this, "windowOpacity", this);
-    anim->setDuration(240);
-    anim->setStartValue(0.0);
-    anim->setEndValue(1.0);
-    anim->setEasingCurve(QEasingCurve::OutCubic);
-    anim->start(QAbstractAnimation::DeleteWhenStopped);
+    // macOS 26 通知浮岛入场：微距上浮滑入 + 平滑淡入
+    const QPoint targetPos = pos();
+    move(targetPos.x(), targetPos.y() + 12);
+
+    auto* group = new QParallelAnimationGroup(this);
+    auto* opacityAnim = new QPropertyAnimation(this, "windowOpacity", group);
+    opacityAnim->setDuration(240);
+    opacityAnim->setStartValue(0.0);
+    opacityAnim->setEndValue(1.0);
+    opacityAnim->setEasingCurve(QEasingCurve::OutCubic);
+
+    auto* slideAnim = new QPropertyAnimation(this, "pos", group);
+    slideAnim->setDuration(260);
+    slideAnim->setStartValue(QPoint(targetPos.x(), targetPos.y() + 12));
+    slideAnim->setEndValue(targetPos);
+    slideAnim->setEasingCurve(QEasingCurve::OutCubic);
+
+    group->addAnimation(opacityAnim);
+    group->addAnimation(slideAnim);
+    group->start(QAbstractAnimation::DeleteWhenStopped);
 
     m_dismissTimer->start(m_durationMs);
 }
 
 void MacToast::fadeOutAndClose() {
+    if (m_closing) return;
+    m_closing = true;
     m_dismissTimer->stop();
     auto* anim = new QPropertyAnimation(this, "windowOpacity", this);
-    anim->setDuration(280);
+    anim->setDuration(240);
     anim->setStartValue(windowOpacity());
     anim->setEndValue(0.0);
     anim->setEasingCurve(QEasingCurve::InCubic);
@@ -177,12 +194,14 @@ void MacToast::fadeOutAndClose() {
 
 void MacToast::enterEvent(QEnterEvent* event) {
     QWidget::enterEvent(event);
-    m_dismissTimer->stop(); // 鼠标悬停时暂停自动消失
+    if (!m_closing)
+        m_dismissTimer->stop(); // 鼠标悬停时暂停自动消失
 }
 
 void MacToast::leaveEvent(QEvent* event) {
     QWidget::leaveEvent(event);
-    m_dismissTimer->start(2000); // 鼠标移开后 2 秒淡出
+    if (!m_closing)
+        m_dismissTimer->start(2000); // 鼠标移开后 2 秒淡出
 }
 
 void MacToast::mousePressEvent(QMouseEvent* event) {
@@ -202,6 +221,7 @@ void MacToast::paintEvent(QPaintEvent* event) {
     opt.initFrom(this);
     QPainter p(this);
     style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
+    Theme::paintLiquidGlassWindowRim(p, QRectF(rect()), 16.0, Theme::isDark());
 }
 
 void MacToast::showToast(

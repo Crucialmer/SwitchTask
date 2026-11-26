@@ -24,6 +24,7 @@
 #include "utils/MacToast.h"
 #include "utils/Theme.h"
 #include "utils/setWindowBlur.h"
+#include "utils/Util.h"
 
 /// 状态呼吸圆点：抗锯齿矢量圆点绘制，带外圈半透明柔和氛围光晕，默认 Apple Traffic Green (#34C759)
 class StatusDot : public QWidget {
@@ -313,16 +314,20 @@ void SystemTray::setMenu(QWidget* parent) {
     menu->addAction(act_quit);
     this->setContextMenu(menu);
 
-    // 毛玻璃在【每次弹出时】应用到当时的 HWND：QMenu::popup 会先按目标屏幕创建窗口，
+    // 毛玻璃与圆角在【每次弹出时】应用到当时的 HWND：QMenu::popup 会先按目标屏幕创建窗口，
     // 若构造期提前 winId()，原生窗口会被钉在启动屏幕的 DPI 上（多屏混合缩放场景）；重放幂等
     connect(menu, &QMenu::aboutToShow, menu, [this] {
-        setWindowBlur(reinterpret_cast<HWND>(menu->winId()));
+        HWND hwnd = reinterpret_cast<HWND>(menu->winId());
+        setWindowBlur(hwnd);
+        Util::setWindowRoundCorner(hwnd);
         if (headerWidget) {
             headerWidget->updateStatus(QStringLiteral("运行中 · 快捷切换就绪"));
         }
     });
     connect(menu_monitor, &QMenu::aboutToShow, menu_monitor, [this] {
-        setWindowBlur(reinterpret_cast<HWND>(menu_monitor->winId()));
+        HWND hwnd = reinterpret_cast<HWND>(menu_monitor->winId());
+        setWindowBlur(hwnd);
+        Util::setWindowRoundCorner(hwnd);
     });
 
     // 主题刷新：系统深浅色切换 / 配置修改后即时重新着色
@@ -358,9 +363,13 @@ void SystemTray::showSettingsDialog() {
 }
 
 void SystemTray::showUpdateDialog() {
-    // !不要用 static 局部变量对象：程序结束时析构可能访问已清理的 qApp 资源（"No style available without QApplication!"）
-    static auto* dlg = new UpdateDialog;
-    dlg->show();
-    dlg->raise();
-    dlg->activateWindow();
+    // 使用 QPointer + aboutToQuit 清理：既复用实例保留 10 分钟 API 缓存，又避免程序退出时资源泄漏
+    static QPointer<UpdateDialog> s_updateDialog;
+    if (!s_updateDialog) {
+        s_updateDialog = new UpdateDialog;
+        QObject::connect(qApp, &QApplication::aboutToQuit, s_updateDialog, &QObject::deleteLater);
+    }
+    s_updateDialog->show();
+    s_updateDialog->raise();
+    s_updateDialog->activateWindow();
 }

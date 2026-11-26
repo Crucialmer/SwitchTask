@@ -403,12 +403,18 @@ void UpdateDialog::download(const QString& url, const QString& savePath) {
 
     connect(reply, &QNetworkReply::downloadProgress, this, [this](qint64 bytesReceived, qint64 bytesTotal) {
         qDebug() << "Download progress" << bytesReceived << bytesTotal;
-        ui->progressBar->setMaximum(bytesTotal > 0 ? bytesTotal : 0);
-        ui->progressBar->setValue(bytesReceived);
+        if (bytesTotal > 0) {
+            ui->progressBar->setMaximum(1000);
+            const int scaled = static_cast<int>(qBound<qint64>(0, (bytesReceived * 1000) / bytesTotal, 1000));
+            ui->progressBar->setValue(scaled);
+        } else {
+            ui->progressBar->setMaximum(0);
+            ui->progressBar->setValue(0);
+        }
         const auto toMB = [](qint64 b) {
             return QString::number(static_cast<double>(b) / (1024.0 * 1024.0), 'f', 1) + " MB";
         };
-        int pct = bytesTotal > 0 ? static_cast<int>(bytesReceived * 100 / bytesTotal) : 0;
+        const int pct = bytesTotal > 0 ? static_cast<int>(qBound<qint64>(0, bytesReceived * 100 / bytesTotal, 100)) : 0;
         ui->label_progress->setText(QStringLiteral("正在下载更新包... %1 / %2 (%3%)")
             .arg(toMB(bytesReceived), toMB(bytesTotal), QString::number(pct)));
     });
@@ -604,9 +610,12 @@ void UpdateDialog::paintEvent(QPaintEvent* event) {
     opt.initFrom(this);
     QPainter p(this);
     style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
+    Theme::paintLiquidGlassWindowRim(p, QRectF(rect()), 16.0, Theme::isDark());
 }
 
 void UpdateDialog::applyTheme() {
+    Theme::refreshSystemVisualSettings();
     setStyleSheet(Theme::macDialogStyleSheet());
+    update();
 }
 

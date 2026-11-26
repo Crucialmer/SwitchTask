@@ -3,18 +3,18 @@
 #include "utils/Theme.h"
 #include "utils/setWindowBlur.h"
 #include <QPainter>
-#include <QPainterPath>
-#include <QPen>
 #include <QResizeEvent>
 #include <QHideEvent>
 #include <QMouseEvent>
+#include <QEnterEvent>
 #include <QEasingCurve>
+#include <QVariantAnimation>
 #include <QApplication>
 #include <QDebug>
 #include <QTimer>
 
 // ============================================================================
-// ThumbnailPopupWidget: 方案 1 悬浮微型卡片（Floating Preview Island）
+// ThumbnailPopupWidget: 方案 1 macOS 26 Liquid Glass 悬浮微型卡片（Floating Preview Island）
 // ============================================================================
 
 ThumbnailPopupWidget::ThumbnailPopupWidget(QWidget* parent)
@@ -29,7 +29,6 @@ ThumbnailPopupWidget::ThumbnailPopupWidget(QWidget* parent)
         LONG_PTR exStyle = GetWindowLongPtr(hwnd, GWL_EXSTYLE);
         SetWindowLongPtr(hwnd, GWL_EXSTYLE, exStyle | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
         Util::setWindowRoundCorner(hwnd);
-        setWindowBlur(hwnd);
     }
 
     m_posAnim = new QPropertyAnimation(this, "geometry", this);
@@ -38,10 +37,29 @@ ThumbnailPopupWidget::ThumbnailPopupWidget(QWidget* parent)
     connect(m_posAnim, &QPropertyAnimation::valueChanged, this, [this](const QVariant&) {
         updateThumbnailProperties();
     });
+
+    m_hoverAnim = new QVariantAnimation(this);
+    m_hoverAnim->setDuration(140);
+    m_hoverAnim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(m_hoverAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+        m_hoverProgress = v.toReal();
+        update();
+    });
+
+    applyTheme();
 }
 
 ThumbnailPopupWidget::~ThumbnailPopupWidget() {
     releaseThumbnail();
+}
+
+void ThumbnailPopupWidget::applyTheme() {
+    m_isDark = Theme::isDark();
+    m_transparent = Theme::isTransparencyEnabled();
+    if (HWND hwnd = hWnd()) {
+        setWindowBlur(hwnd);
+    }
+    update();
 }
 
 void ThumbnailPopupWidget::releaseThumbnail() {
@@ -151,6 +169,9 @@ void ThumbnailPopupWidget::setTargetWindow(HWND targetHwnd) {
 
 void ThumbnailPopupWidget::hidePopup() {
     if (m_posAnim) m_posAnim->stop();
+    if (m_hoverAnim) m_hoverAnim->stop();
+    m_hovered = false;
+    m_hoverProgress = 0.0;
     hide();
     releaseThumbnail();
     m_targetHwnd = nullptr;
@@ -170,8 +191,8 @@ void ThumbnailPopupWidget::updateThumbnailProperties() {
         }
     }
 
-    // 四周留出 8px macOS 微光边框
-    QRect contentRect = rect().adjusted(8, 8, -8, -8);
+    // 10px 留白与外圆角 r=18 + 内井 r=10 同心呼应
+    QRect contentRect = rect().adjusted(10, 10, -10, -10);
     if (contentRect.width() <= 0 || contentRect.height() <= 0) return;
 
     QRect fitRect = contentRect;
@@ -221,7 +242,7 @@ void ThumbnailPopupWidget::updatePopupGeometry(const QRect& iconGlobalRect, QScr
     const int kMaxH = qBound(340, qRound(avail.height() * 0.35), 1500);
     const int kMinW = qRound(kMaxW * 0.45);
     const int kMinH = qRound(kMaxH * 0.45);
-    constexpr int kPadding = 16;
+    constexpr int kPadding = 20;
 
     QSize srcSize = querySourceSize();
     int cardW = kMaxW;
@@ -273,6 +294,30 @@ void ThumbnailPopupWidget::hideEvent(QHideEvent* event) {
     releaseThumbnail();
 }
 
+void ThumbnailPopupWidget::setHovered(bool hovered) {
+    if (m_hovered == hovered) return;
+    m_hovered = hovered;
+    if (m_hoverAnim && isVisible()) {
+        m_hoverAnim->stop();
+        m_hoverAnim->setStartValue(m_hoverProgress);
+        m_hoverAnim->setEndValue(m_hovered ? 1.0 : 0.0);
+        m_hoverAnim->start();
+    } else {
+        m_hoverProgress = m_hovered ? 1.0 : 0.0;
+        update();
+    }
+}
+
+void ThumbnailPopupWidget::enterEvent(QEnterEvent* event) {
+    QWidget::enterEvent(event);
+    setHovered(true);
+}
+
+void ThumbnailPopupWidget::leaveEvent(QEvent* event) {
+    QWidget::leaveEvent(event);
+    setHovered(false);
+}
+
 void ThumbnailPopupWidget::mousePressEvent(QMouseEvent* event) {
     if (m_targetHwnd && IsWindow(m_targetHwnd)) {
         if (event->button() == Qt::LeftButton) {
@@ -292,32 +337,13 @@ void ThumbnailPopupWidget::paintEvent(QPaintEvent*) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    // macOS 风格：连续圆角（r=14）面板底色
-    QPainterPath panel;
-    panel.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 14, 14);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(Theme::panelFill());
-    painter.drawPath(panel);
-
-    // 顶部受光缘
-    {
-        QPainterPath inner;
-        inner.addRoundedRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5), 13, 13);
-        QLinearGradient edge(0, 0, 0, 4);
-        edge.setColorAt(0.0, Theme::panelTopSheen());
-        edge.setColorAt(1.0, Qt::transparent);
-        painter.setPen(QPen(QBrush(edge), 1.5));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawPath(inner);
-    }
-
-    // 细微外轮廓描边
-    painter.setPen(QPen(Theme::panelStroke(), 1));
-    painter.drawPath(panel);
+    // macOS 26 Liquid Glass 外壳（r=18 连续超椭圆）+ 同心内凹光学井（r=10，18 - 8 = 10 严格同心）
+    Theme::paintLiquidGlassSurface(painter, QRectF(rect()), 18.0, m_isDark, m_transparent);
+    Theme::paintLiquidGlassStageWell(painter, QRectF(rect()).adjusted(8.0, 8.0, -8.0, -8.0), 10.0, m_hoverProgress, m_isDark);
 
     // 若缩略图尚未就绪（如窗口不可见或最小化），优雅居中提示
     if (!m_hThumbnail || !m_targetHwnd || !IsWindow(m_targetHwnd)) {
-        painter.setPen(QColor(255, 255, 255, 120));
+        painter.setPen(Theme::stageEmptyText(m_isDark));
         QFont f = painter.font();
         f.setPointSize(9);
         painter.setFont(f);

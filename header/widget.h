@@ -86,14 +86,20 @@ private:
     void handleIconClick(QListWidgetItem* item);
     /// 中键单击图标：关闭该窗口（WM_CLOSE 优雅关闭）并移除条目（事件过滤器与 pressed 信号兜底共用）
     void closeWindowItem(QListWidgetItem* item);
+    /// 按 HWND 关闭指定窗口条目（悬浮卡片中键关闭精准匹配）
+    void closeWindowByHwnd(HWND hwnd);
     /// Ctrl+W：关闭当前选中项对应的窗口（与中键单击等效）
     void closeCurrentItem();
     /// 循环选择（forward=true 下一个 / false 上一个）
     void cycleSelection(bool forward);
+    /// 按窗口数与屏幕可用区动态计算自适应网格（支持多行让渡与关窗回弹恢复）
+    void recomputeAdaptiveGrid(QScreen* screen, int count);
     /// 重新计算面板几何尺寸与居中位置（条目增减时维持 macOS 风格绝对对称）
     void relayoutGeometry(QScreen* targetScreen = nullptr);
     void showLabelForItem(QListWidgetItem* item);
     void setupLabelFont();
+    void reloadLabelFont();
+    void setStageHovered(bool hovered);
     void updateThumbnailForCurrentItem();
     void hideThumbnails();
     /// 应用当前深浅色主题：底部标题颜色、选中/悬停/描边色、面板与列表重绘
@@ -106,22 +112,26 @@ private:
 private:
     Ui::Widget* ui;
     QListWidget* lw = nullptr;
-    int itemsPerRow = 0; // 当前布局的每行条目数（0 = 单行，由 prepareListWidget 计算）
-    IconOnlyDelegate* iconDelegate = nullptr; // 列表 delegate（自绘选中/悬停底与图标）
-    const QMargins ListWidgetMargin{24, 24, 24, 24}; // 左/上/右参与布局；bottom 为 marginsAdded 占位（底边距由“文字等距”规则动态计算，见 prepareListWidget）
+    int itemsPerRow = 0; // 当前布局的每行条目数（0 = 单行，由 recomputeAdaptiveGrid 计算）
+    IconOnlyDelegate* iconDelegate = nullptr; // 列表 delegate（自绘 macOS 26 Liquid Glass 聚光透镜与图标）
+    const QMargins ListWidgetMargin{24, 24, 24, 24}; // 左/上/右参与布局；bottom 为 marginsAdded 占位（底边距由“文字等距”规则动态计算）
     /// exePath -> (HWND, time)
     QHash<QString, QHash<HWND, QDateTime>> winActiveOrder;
     QList<HWND> groupWindowOrder; // for Alt+` 同组窗口切换
 
-    // --- 面板配色缓存（applyTheme 更新；paintEvent 每帧直接使用，避免逐帧重读 QSettings）---
-    QColor panelFillColor;
-    QColor panelStrokeColor;
+    // --- Liquid Glass 主题与舞台微光状态缓存（applyTheme 更新；paintEvent 零 QSettings 读取）---
+    bool cachedIsDark = true;
+    bool cachedTransparent = true;
+    bool stageHovered = false;
+    qreal stageHoverProgress = 0.0;
+    QVariantAnimation* stageHoverAnim = nullptr;
 
     // --- 状态：替代原函数内 static（跨调用存活、存在悬垂/污染风险）---
     // rotateTaskbarWindowInGroup 状态
     QString taskbarLastPath;
     HWND taskbarLastHwnd = nullptr;
     bool isLastTaskbarForward = true;
+    QTimer* taskbarReleaseTimer = nullptr;
     // Ctrl+Alt+Tab pinned 模式：松开按键后保持显示，Enter/点击确认，Esc 取消
     bool pinned = false;
 

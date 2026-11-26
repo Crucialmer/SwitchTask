@@ -55,6 +55,7 @@ private:
     QFrame* m_frame = nullptr;
     QTimer* m_dismissTimer = nullptr;
     int m_durationMs = 4500;
+    bool m_closing = false;
     std::function<void()> m_onClick;
 
     static inline QPointer<MacToast> s_activeToast;

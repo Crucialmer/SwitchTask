@@ -358,6 +358,7 @@ void SettingsDialog::adjustDialogGeometry() {
 }
 
 void SettingsDialog::applyTheme() {
+    Theme::refreshSystemVisualSettings();
     setStyleSheet(Theme::macDialogStyleSheet());
     update();
 }
@@ -368,6 +369,7 @@ void SettingsDialog::paintEvent(QPaintEvent* event) {
     opt.initFrom(this);
     QPainter p(this);
     style()->drawPrimitive(QStyle::PE_Widget, &opt, &p, this);
+    Theme::paintLiquidGlassWindowRim(p, QRectF(rect()), 16.0, Theme::isDark());
 }
 
 void SettingsDialog::showEvent(QShowEvent* event) {

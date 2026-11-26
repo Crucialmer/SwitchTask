@@ -3,6 +3,7 @@
 
 #include <QObject>
 #include <Windows.h>
+#include <atomic>
 #include <thread>
 
 class TaskbarWheelHooker : public QObject {
@@ -25,7 +26,7 @@ private slots:
 
 private:
     std::thread m_thread;
-    DWORD m_threadId = 0;
+    std::atomic<DWORD> m_threadId{0};
 };
 
 #endif //WIN_SWITCHER_TASKBARWHEELHOOKER_H

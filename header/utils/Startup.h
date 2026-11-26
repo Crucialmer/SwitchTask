@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QMessageBox>
 #include <QProcess>
+#include <QThread>
 #include <shlobj_core.h>
 
 // 纯绿色/非管理员模式：始终使用当前用户注册表 Run 键，不依赖计划任务或管理员权限
@@ -34,9 +35,14 @@ public:
     static void off() {
         off_reg();
         clearStartupDisabled();
-        // 若系统曾残留管理员模式的计划任务，顺便尝试静默清理（零临时文件、不调用 PowerShell）
+        // 后台异步静默清理可能残留的旧版计划任务（避免同步阻塞 GUI 线程导致开关动画卡顿，零控制台闪窗）
         const QString sysRoot = QProcessEnvironment::systemEnvironment().value("SystemRoot", "C:\\Windows");
-        QProcess::execute(sysRoot + "\\System32\\schtasks.exe", {"/delete", "/tn", SCHTASK_NAME, "/f"});
+        const QString schtasksExe = sysRoot + "\\System32\\schtasks.exe";
+        auto* worker = QThread::create([schtasksExe] {
+            QProcess::execute(schtasksExe, {"/delete", "/tn", SCHTASK_NAME, "/f"});
+        });
+        QObject::connect(worker, &QThread::finished, worker, &QThread::deleteLater);
+        worker->start();
     }
 
     static void toggle() {

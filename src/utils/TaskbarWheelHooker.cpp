@@ -145,7 +145,7 @@ TaskbarWheelHooker::TaskbarWheelHooker() {
     m_thread = std::thread([this, &installedPromise]() {
         MSG msg;
         PeekMessageW(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
-        m_threadId = GetCurrentThreadId();
+        m_threadId.store(GetCurrentThreadId(), std::memory_order_release);
 
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
@@ -166,7 +166,7 @@ TaskbarWheelHooker::TaskbarWheelHooker() {
     });
 
     if (installedFuture.wait_for(std::chrono::seconds(2)) == std::future_status::ready && installedFuture.get()) {
-        qInfo() << "TaskbarWheelHooker installed in dedicated thread ID:" << m_threadId;
+        qInfo() << "TaskbarWheelHooker installed in dedicated thread ID:" << m_threadId.load(std::memory_order_acquire);
     } else {
         qCritical() << "Failed to install taskbar mouse hook in dedicated thread!";
     }
@@ -184,8 +184,8 @@ TaskbarWheelHooker::TaskbarWheelHooker() {
 }
 
 TaskbarWheelHooker::~TaskbarWheelHooker() {
-    if (m_threadId) {
-        PostThreadMessageW(m_threadId, WM_QUIT, 0, 0);
+    if (const DWORD tid = m_threadId.load(std::memory_order_acquire); tid != 0) {
+        PostThreadMessageW(tid, WM_QUIT, 0, 0);
         if (m_thread.joinable()) {
             m_thread.join();
         }

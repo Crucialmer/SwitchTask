@@ -16,12 +16,14 @@
 #include <QStyleHints>
 #include <QTimer>
 #include <QElapsedTimer>
-#include <QRandomGenerator>
+#include <QVariantAnimation>
+#include <QEasingCurve>
 #include <QImage>
 #include <QMetaEnum>
 #include <QFontMetrics>
 #include <QSet>
 #include <QHash>
+#include <tuple>
 #include "utils/SystemTray.h"
 #include "utils/ConfigManager.h"
 #include "utils/Theme.h"
@@ -83,8 +85,25 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
     // 本来为了去除图标选中变色样式，可以对Icon手动addPixmap(..., QIcon::Selected) or (& ~Qt::ItemIsSelectable)
     // 但是采用delegate后，就没必要了
     // will not take ownership of delegate
-    iconDelegate = new IconOnlyDelegate(lw, Theme::selectionFill(), Theme::hoverFill(), Theme::selectionStroke());
+    iconDelegate = new IconOnlyDelegate(
+        lw,
+        Theme::selectionFillTop(),
+        Theme::selectionFillBottom(),
+        Theme::selectionStroke(),
+        Theme::selectionInnerHighlight(),
+        Theme::hoverFill(),
+        Theme::hoverStroke()
+    );
     lw->setItemDelegate(iconDelegate);
+
+    stageHoverAnim = new QVariantAnimation(this);
+    stageHoverAnim->setDuration(140);
+    stageHoverAnim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(stageHoverAnim, &QVariantAnimation::valueChanged, this, [this](const QVariant& v) {
+        stageHoverProgress = v.toReal();
+        if (!stageRect.isEmpty())
+            update(stageRect.adjusted(-4, -4, 4, 4));
+    });
 
     lw->installEventFilter(this);
     // 鼠标事件实际投递给列表的 viewport（不是 QListWidget 本身，QAbstractScrollArea 子类的经典坑）——
@@ -105,12 +124,12 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
         applyTheme(); // 系统深浅色切换时即时刷新（弹窗保持可见时也立即生效）
     });
     connect(&CFG, &ConfigManager::configEdited, this, [this] {
-        // 强制模式同步（applyConfiguredScheme）由 SystemTray 的 configEdited 处理器统一负责
-        // （其连接先于本处注册、同一事件内先行执行）；此处只应用配色——applyTheme 读取的
-        // isDark() 直接取配置，不依赖 Qt 侧调色板，因此与调用顺序无关
+        // 强制模式同步（applyConfiguredScheme）由 SystemTray 的 configEdited 处理器统一负责；
+        // 此处刷新配色，仅在面板可见时实时重排与同步缩略图（隐藏态留待下次呼出全量构建）
         applyTheme();
-        relayoutGeometry();
-        updateThumbnailForCurrentItem();
+        if (this->isVisible()) {
+            relayoutGeometry();
+        }
     });
 
     connect(lw, &QListWidget::currentItemChanged, this, [this](QListWidgetItem* cur, QListWidgetItem*) {
@@ -132,7 +151,8 @@ Widget::Widget(QWidget* parent) : QWidget(parent), ui(new Ui::Widget) {
 
     connect(qApp, &QApplication::focusWindowChanged, this, [this](QWindow* focusWindow) {
         if (focusWindow == nullptr) {
-            if (!this->underMouse()) { // hide when lost focus & mouse outside (means user choose to)
+            const bool overPopup = popupWidget && popupWidget->isVisible() && popupWidget->underMouse();
+            if (!this->underMouse() && !overPopup) { // hide when lost focus & mouse outside (means user choose to)
                 pinned = false; // 非 Enter 确认路径的隐藏都视为取消
                 hide();
             } else { // Windows Terminal will do
@@ -153,6 +173,10 @@ Widget::~Widget() {
 
 void Widget::hideEvent(QHideEvent* event) {
     QWidget::hideEvent(event);
+    stageHovered = false;
+    stageHoverProgress = 0.0;
+    if (stageHoverAnim) stageHoverAnim->stop();
+    unsetCursor();
     hideThumbnails();
 }
 
@@ -285,66 +309,76 @@ void Widget::showLabelForItem(QListWidgetItem* item) {
     ui->label->move(labelRect.topLeft());
 }
 
-void Widget::setupLabelFont() {
-    static auto reloadLabelFontCfg = [this] {
-        const QStringList Fonts = {"Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI Variable Display", "Segoe UI", "Consolas"}; // 默认简体中文微软雅黑优先
-        auto labelFont = ui->label->font();
-        auto fontSize = CFG.get("label/font_size", 10.5).toDouble(); // 默认 10.5pt（100% 缩放下即 14px，视觉更饱满清晰）
-        if (fontSize <= 0)
-            fontSize = 10.5;
-        labelFont.setPointSizeF(fontSize);
-        auto defaultFF = QStringList{CFG.get("label/font_family", Fonts[0]).toString()};
-        labelFont.setFamilies(defaultFF << Fonts.mid(1));
+void Widget::reloadLabelFont() {
+    const QStringList Fonts = {"Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI Variable Display", "Segoe UI", "Consolas"}; // 默认简体中文微软雅黑优先
+    auto labelFont = ui->label->font();
+    auto fontSize = CFG.get("label/font_size", 10.5).toDouble(); // 默认 10.5pt（100% 缩放下即 14px，视觉更饱满清晰）
+    if (fontSize <= 0)
+        fontSize = 10.5;
+    labelFont.setPointSizeF(fontSize);
+    auto defaultFF = QStringList{CFG.get("label/font_family", Fonts[0]).toString()};
+    labelFont.setFamilies(defaultFF << Fonts.mid(1));
 
-        // 默认 Bold (700)，字骨饱满扎实，同时支持在 config.ini [label] 节自由定制
-        const auto weightCfg = CFG.get("label/font_weight", "bold").toString().trimmed().toLower();
-        int weight = 700;
-        if (!weightCfg.isEmpty()) {
-            if (weightCfg == "bold" || weightCfg == "b" || weightCfg == "700")
-                weight = 700;
-            else if (weightCfg == "normal" || weightCfg == "regular" || weightCfg == "n" || weightCfg == "400")
-                weight = 400;
-            else if (weightCfg == "medium" || weightCfg == "m" || weightCfg == "500")
-                weight = 500;
-            else if (weightCfg == "semibold" || weightCfg == "demibold" || weightCfg == "600")
-                weight = 600;
-            else {
-                bool ok = false;
-                const int num = weightCfg.toInt(&ok);
-                if (ok && num >= 100 && num <= 900)
-                    weight = num;
-            }
-            if (weight <= 0) {
-                weight = 700;
-                qWarning() << "Invalid label/font_weight (expect 100~900/bold/medium/normal):" << weightCfg;
-            }
+    // 默认 Bold (700)，字骨饱满扎实，同时支持在 config.ini [label] 节自由定制
+    const auto weightCfg = CFG.get("label/font_weight", "bold").toString().trimmed().toLower();
+    int weight = 700;
+    if (!weightCfg.isEmpty()) {
+        if (weightCfg == "bold" || weightCfg == "b" || weightCfg == "700")
+            weight = 700;
+        else if (weightCfg == "normal" || weightCfg == "regular" || weightCfg == "n" || weightCfg == "400")
+            weight = 400;
+        else if (weightCfg == "medium" || weightCfg == "m" || weightCfg == "500")
+            weight = 500;
+        else if (weightCfg == "semibold" || weightCfg == "demibold" || weightCfg == "600")
+            weight = 600;
+        else {
+            bool ok = false;
+            const int num = weightCfg.toInt(&ok);
+            if (ok && num >= 100 && num <= 900)
+                weight = num;
         }
-        labelFont.setWeight(QFont::Weight(weight));
-        ui->label->setFont(labelFont);
-        qDebug() << labelFont.families();
-        qDebug() << "Label Actual Font:" << QFontInfo(labelFont).family();
-    };
-    reloadLabelFontCfg();
+        if (weight <= 0) {
+            weight = 700;
+            qWarning() << "Invalid label/font_weight (expect 100~900/bold/medium/normal):" << weightCfg;
+        }
+    }
+    labelFont.setWeight(QFont::Weight(weight));
+    ui->label->setFont(labelFont);
+    qDebug() << labelFont.families();
+    qDebug() << "Label Actual Font:" << QFontInfo(labelFont).family();
+}
 
-    // auto reload
-    connect(&CFG, &ConfigManager::configEdited, this, [] {
-        reloadLabelFontCfg();
-    });
+void Widget::setupLabelFont() {
+    reloadLabelFont();
+    connect(&CFG, &ConfigManager::configEdited, this, &Widget::reloadLabelFont);
 }
 
 /// 应用当前深浅色主题：底部标题颜色、列表选中/悬停/描边色、面板与列表重绘
 void Widget::applyTheme() {
-    // 窗口材质：支持 Windows 11 硬件加速瞬态亚克力 + Win10 BLURBEHIND 兜底
+    Theme::refreshSystemVisualSettings();
+    cachedIsDark = Theme::isDark();
+    cachedTransparent = Theme::isTransparencyEnabled();
+    cachedThumbMode = CFG.getThumbnailMode();
+
+    // 窗口材质：支持 Windows 11/10 DWM 磨砂模糊（遵循系统「透明效果」开关）
     setWindowBlur(hWnd());
     ui->label->setStyleSheet(QStringLiteral("color: %1;").arg(Theme::labelColor().name()));
-    if (iconDelegate)
-        iconDelegate->setColors(Theme::selectionFill(), Theme::hoverFill(), Theme::selectionStroke());
-    panelFillColor = Theme::panelFill();
-    panelStrokeColor = Theme::panelStroke();
-    cachedThumbMode = CFG.getThumbnailMode();
+    if (iconDelegate) {
+        iconDelegate->setColors(
+            Theme::selectionFillTop(),
+            Theme::selectionFillBottom(),
+            Theme::selectionStroke(),
+            Theme::selectionInnerHighlight(),
+            Theme::hoverFill(),
+            Theme::hoverStroke()
+        );
+    }
+    if (popupWidget) {
+        popupWidget->applyTheme();
+    }
     if (lw)
         lw->viewport()->update();
-    update(); // 面板底色/描边重绘
+    update(); // 面板 Liquid Glass 底色/折光描边重绘
 }
 
 void Widget::keyReleaseEvent(QKeyEvent* event) {
@@ -376,24 +410,34 @@ void Widget::mousePressEvent(QMouseEvent* event) {
     QWidget::mousePressEvent(event);
 }
 
-void Widget::mouseMoveEvent(QMouseEvent* event) {
-    const bool inStage = this->isVisible() && !stageRect.isEmpty() && stageRect.contains(event->pos());
-    if (inStage) {
+void Widget::setStageHovered(bool hovered) {
+    if (stageHovered == hovered) return;
+    stageHovered = hovered;
+    if (stageHovered) {
         setCursor(Qt::PointingHandCursor);
     } else {
         unsetCursor();
     }
-    if (!stageRect.isEmpty()) {
-        update(stageRect.adjusted(-4, -4, 4, 4)); // 触发舞台外发光边框动态微光渲染
+    if (stageHoverAnim && this->isVisible()) {
+        stageHoverAnim->stop();
+        stageHoverAnim->setStartValue(stageHoverProgress);
+        stageHoverAnim->setEndValue(stageHovered ? 1.0 : 0.0);
+        stageHoverAnim->start();
+    } else {
+        stageHoverProgress = stageHovered ? 1.0 : 0.0;
+        if (!stageRect.isEmpty())
+            update(stageRect.adjusted(-4, -4, 4, 4));
     }
+}
+
+void Widget::mouseMoveEvent(QMouseEvent* event) {
+    const bool inStage = this->isVisible() && !stageRect.isEmpty() && stageRect.contains(event->pos());
+    setStageHovered(inStage);
     QWidget::mouseMoveEvent(event);
 }
 
 void Widget::leaveEvent(QEvent* event) {
-    unsetCursor();
-    if (!stageRect.isEmpty()) {
-        update(stageRect.adjusted(-4, -4, 4, 4));
-    }
+    setStageHovered(false);
     QWidget::leaveEvent(event);
 }
 
@@ -401,76 +445,22 @@ void Widget::paintEvent(QPaintEvent*) { // 不绘制会导致鼠标穿透背景
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
 
-    // macOS 风格：圆润连续圆角面板（r=16）+ 细描边
-    QPainterPath panel;
-    panel.addRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 16, 16);
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(panelFillColor); // 主题变更由 applyTheme() 同步，绘制路径零 QSettings 读取
-    painter.drawPath(panel);
+    // macOS 26 (Tahoe / Liquid Glass)：大曲率连续超椭圆玻璃主体（r=24）+ 光学纵深 + 双轴折光斜边
+    Theme::paintLiquidGlassSurface(painter, QRectF(rect()), 24.0, cachedIsDark, cachedTransparent);
 
-    // Apple 式背景材质层次：漫反射光影渐变（上亮→下沉）——深邃通透的玻璃纵深感
-    {
-        QLinearGradient shade(0, 0, 0, height());
-        shade.setColorAt(0.0, Theme::panelGradTop());
-        shade.setColorAt(0.45, Qt::transparent);
-        shade.setColorAt(0.75, Qt::transparent);
-        shade.setColorAt(1.0, Theme::panelGradBottom());
-        painter.setBrush(shade);
-        painter.drawPath(panel);
-    }
-
-    // 顶部受光缘（内侧细微高光，随圆角自然过渡与淡出）
-    {
-        QPainterPath inner;
-        inner.addRoundedRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5), 15, 15);
-        QLinearGradient edge(0, 0, 0, 4);
-        edge.setColorAt(0.0, Theme::panelTopSheen());
-        edge.setColorAt(1.0, Qt::transparent);
-        painter.setPen(QPen(QBrush(edge), 1.5));
-        painter.setBrush(Qt::NoBrush);
-        painter.drawPath(inner);
-    }
-
-    // 方案 2：macOS 舞台集成卡片背景衬底与微发光描边（默认推荐旗舰模式）
+    // 方案 2：macOS 26 同心内凹光学舞台井（r=14 连续超椭圆 + 平滑悬停微光）
     if (cachedThumbMode == ThumbnailIntegrated && !stageRect.isEmpty()) {
-        const QRectF stageBox = QRectF(stageRect).adjusted(-2, -2, 2, 2);
-        QPainterPath stagePath;
-        stagePath.addRoundedRect(stageBox, 16, 16);
-
-        const bool isStageHovered = !stageRect.isEmpty() && stageRect.contains(mapFromGlobal(QCursor::pos()));
-
-        // Apple 式暗调内嵌舞台井深度光影
-        QLinearGradient stageWell(0, stageBox.top(), 0, stageBox.bottom());
-        stageWell.setColorAt(0.0, QColor(0, 0, 0, 56));
-        stageWell.setColorAt(1.0, QColor(0, 0, 0, 36));
-        painter.setBrush(stageWell);
-        painter.setPen(QPen(isStageHovered ? QColor(255, 255, 255, 52) : QColor(255, 255, 255, 26), 1));
-        painter.drawPath(stagePath);
-
-        // 舞台顶端 1px 内切漫反射微光线
-        {
-            QPainterPath stageInnerSheen;
-            stageInnerSheen.addRoundedRect(stageBox.adjusted(1, 1, -1, -1), 15, 15);
-            QLinearGradient sheenGrad(0, stageBox.top(), 0, stageBox.top() + 3);
-            sheenGrad.setColorAt(0.0, isStageHovered ? QColor(255, 255, 255, 64) : QColor(255, 255, 255, 36));
-            sheenGrad.setColorAt(1.0, Qt::transparent);
-            painter.setPen(QPen(QBrush(sheenGrad), 1));
-            painter.setBrush(Qt::NoBrush);
-            painter.drawPath(stageInnerSheen);
-        }
+        const QRectF stageBox = QRectF(stageRect).adjusted(-2.0, -2.0, 2.0, 2.0);
+        Theme::paintLiquidGlassStageWell(painter, stageBox, 14.0, stageHoverProgress, cachedIsDark);
 
         if (!stageThumbnail || !stageTargetHwnd || !IsWindow(stageTargetHwnd)) {
-            painter.setPen(QColor(255, 255, 255, 140));
+            painter.setPen(Theme::stageEmptyText(cachedIsDark));
             QFont f = painter.font();
             f.setPointSize(10);
             painter.setFont(f);
             painter.drawText(stageRect, Qt::AlignCenter, QStringLiteral("窗口已最小化或暂无实时画面"));
         }
     }
-
-    // 细微外轮廓描边：在明/暗壁纸上清晰勾勒通透面板
-    painter.setPen(QPen(panelStrokeColor, 1));
-    painter.drawPath(panel);
 }
 
 /// 通知前台窗口变化
@@ -579,6 +569,58 @@ QList<WindowInfo> Widget::prepareWindowList() {
     return winList;
 }
 
+/// 按当前窗口数与屏幕可用区动态计算自适应网格（支持多行 38% 舞台让渡真正回馈单元格高度，以及关窗后自动舒展复原）
+void Widget::recomputeAdaptiveGrid(QScreen* screen, int count) {
+    if (!screen || count <= 0 || !lw) return;
+
+    constexpr int CELL_DEFAULT = 80, ICON_DEFAULT = 64, ICON_MIN = 32, CELL_FLOOR = 32;
+    const auto avail = screen->availableGeometry();
+    const int availableW = qMax(CELL_FLOOR, avail.width() - ListWidgetMargin.left() - ListWidgetMargin.right() - 8);
+    const bool isIntegrated = (CFG.getThumbnailMode() == ThumbnailIntegrated);
+
+    auto fitGrid = [&](double stageRatio) {
+        const int estStageH = isIntegrated ? qMax(280, qRound(avail.height() * stageRatio)) : 0;
+        const int chromeH = ListWidgetMargin.top() + (isIntegrated ? 16 : 0) + estStageH + kCellLabelGap + 44;
+        const int availableH = qMax(CELL_FLOOR, avail.height() - chromeH);
+
+        int cell = CELL_DEFAULT;
+        int perRow = qMax(1, availableW / cell);
+        int rows = (count + perRow - 1) / perRow;
+        while (rows * cell > availableH && cell > CELL_FLOOR) {
+            --cell;
+            perRow = qMax(1, availableW / cell);
+            rows = (count + perRow - 1) / perRow;
+        }
+        return std::tuple<int, int, int>{cell, perRow, rows};
+    };
+
+    auto [cell, perRow, rows] = fitGrid(0.50);
+    // 多行折行且启用大舞台时：从 CELL_DEFAULT 重新基于 38% 舞台求解，真正将让渡的 12% 垂直空间回馈给图标区
+    if (rows > 1 && isIntegrated) {
+        std::tie(cell, perRow, rows) = fitGrid(0.38);
+    }
+
+    itemsPerRow = perRow;
+    const int icon = qBound(ICON_MIN, cell - (CELL_DEFAULT - ICON_DEFAULT), ICON_DEFAULT);
+    const QSize newGrid(cell, cell);
+    const bool gridChanged = (lw->gridSize() != newGrid);
+    lw->setGridSize(newGrid);
+    lw->setIconSize({icon, icon});
+    lw->setFixedHeight(rows * cell);
+    lw->setWrapping(rows > 1); // 单行时关闭换行，避免尺寸抖动导致意外折行
+
+    if (gridChanged) {
+        for (int i = 0; i < lw->count(); ++i) {
+            if (auto* item = lw->item(i))
+                item->setSizeHint(newGrid);
+        }
+    }
+
+    if (cell < CELL_DEFAULT || rows > 1)
+        qInfo() << "Adaptive layout:" << count << "windows -> rows" << rows << ", perRow" << perRow
+                << ", cell" << cell << ", icon" << icon;
+}
+
 bool Widget::prepareListWidget() {
     // 新一轮弹窗交互开始：解除上一轮遗留的"双击屏蔽"（若有），避免其吞掉本轮在同一位置的第一次点击
     Util::disarmClickShield();
@@ -605,48 +647,8 @@ bool Widget::prepareListWidget() {
     }
 
     // 自适应：窗口过多时先压缩单元格，仍放不下就换行（每次弹窗重算，数量回落自动复原）。
-    // 原实现压到 48px 后直接夹取面板宽度，超出的条目被裁掉且没有滚动条——等于不可达。
     if (!winList.isEmpty()) {
-        constexpr int CELL_DEFAULT = 80, ICON_DEFAULT = 64, ICON_MIN = 32, CELL_FLOOR = 32;
-        const int count = winList.size();
-        const auto avail = screen->availableGeometry();
-        const int availableW = avail.width() - ListWidgetMargin.left() - ListWidgetMargin.right() - 8; // 8px 余量
-        // 留给列表的垂直空间：整屏扣掉自适应大舞台、标题与边距的大致开销（舞台高度随屏幕可用高度 50% 响应式伸缩，无损适配至 8K 屏幕）
-        const bool isIntegrated = (CFG.getThumbnailMode() == ThumbnailIntegrated);
-        const int estStageH = isIntegrated ? qMax(280, qRound(avail.height() * 0.50)) : 0;
-        const int chromeH = ListWidgetMargin.top() + 24 + estStageH + kCellLabelGap + 40;
-        const int availableH = qMax(CELL_FLOOR, avail.height() - chromeH);
-
-        int cell = CELL_DEFAULT;
-        int perRow = qMax(1, availableW / cell);
-        int rows = (count + perRow - 1) / perRow;
-        while (rows * cell > availableH && cell > CELL_FLOOR) {
-            --cell;
-            perRow = qMax(1, availableW / cell);
-            rows = (count + perRow - 1) / perRow;
-        }
-
-        // 若多行换行且启用大舞台，舞台适度让渡垂直空间（回退至 38%），确保底部留白开阔呼吸感
-        if (rows > 1 && isIntegrated) {
-            const int multiStageH = qMax(280, qRound(avail.height() * 0.38));
-            const int multiChromeH = ListWidgetMargin.top() + 24 + multiStageH + kCellLabelGap + 40;
-            const int multiAvailH = qMax(CELL_FLOOR, avail.height() - multiChromeH);
-            while (rows * cell > multiAvailH && cell > CELL_FLOOR) {
-                --cell;
-                perRow = qMax(1, availableW / cell);
-                rows = (count + perRow - 1) / perRow;
-            }
-        }
-
-        itemsPerRow = perRow;
-        const int icon = qBound(ICON_MIN, cell - (CELL_DEFAULT - ICON_DEFAULT), ICON_DEFAULT);
-        lw->setGridSize({cell, cell});
-        lw->setIconSize({icon, icon});
-        lw->setFixedHeight(rows * cell);
-        lw->setWrapping(rows > 1); // 单行时关闭换行，避免尺寸抖动导致意外折行
-        if (cell < CELL_DEFAULT || rows > 1)
-            qInfo() << "Adaptive layout:" << count << "windows -> rows" << rows << ", perRow" << perRow
-                    << ", cell" << cell << ", icon" << icon;
+        recomputeAdaptiveGrid(screen, winList.size());
     }
 
     auto resolveIcon = [&](const WindowInfo& info) -> QIcon {
@@ -763,6 +765,9 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
     if (!screen) screen = QApplication::primaryScreen();
     if (!screen) return;
 
+    // 关窗或模式切换后实时重新求解网格（多行回落单行、压缩格自动恢复 80px）
+    recomputeAdaptiveGrid(screen, lw->count());
+
     if (auto firstItem = lw->item(0)) {
         auto firstRect = lw->visualItemRect(firstItem);
         // 宽度：按"每行条目数"而不是总条目数，多行时不会撑出屏幕
@@ -868,8 +873,10 @@ void Widget::relayoutGeometry(QScreen* targetScreen) {
 
         if (auto* cur = lw->currentItem()) {
             showLabelForItem(cur);
+            if (this->isVisible())
+                updateThumbnailForCurrentItem();
         }
-        update(); // 触发面板亚克力圆角底色与描边重绘
+        update(); // 触发面板 Liquid Glass 圆角底色与折光描边重绘
     }
 }
 
@@ -933,6 +940,17 @@ void Widget::closeWindowItem(QListWidgetItem* item) {
     }
     // 实时重新排版并居中，保持对称外观，消除右侧空缺
     relayoutGeometry();
+}
+
+/// 按 HWND 关闭指定窗口条目（悬浮卡片中键关闭精准匹配）
+void Widget::closeWindowByHwnd(HWND hwnd) {
+    if (!hwnd || !lw) return;
+    for (int i = 0; i < lw->count(); ++i) {
+        if (auto* item = lw->item(i); item && item->data(Qt::UserRole).value<WindowInfo>().hwnd == hwnd) {
+            closeWindowItem(item);
+            return;
+        }
+    }
 }
 
 /// Ctrl+W：关闭当前选中项对应的窗口（无选中时无操作；行为与鼠标中键一致）
@@ -1194,13 +1212,12 @@ void Widget::rotateTaskbarWindowInGroup(const QString& exePath, bool forward, in
             } else
                 Util::switchToWindow(hwnd, true);
 
-            static QTimer* timer = [this]() {
-                auto* t = new QTimer;
-                t->setSingleShot(true);
+            if (!taskbarReleaseTimer) {
+                taskbarReleaseTimer = new QTimer(this);
+                taskbarReleaseTimer->setSingleShot(true);
                 // 缩短至 35ms（原 200ms），即时释放左键按压，杜绝光标移动时触发系统全局文件/窗口拖拽
-                t->setInterval(35);
-                // TODO cursor移动后立即释放 防止拖拽
-                t->callOnTimeout(this, [this]() {
+                taskbarReleaseTimer->setInterval(35);
+                taskbarReleaseTimer->callOnTimeout(this, [this]() {
                     mouseEvent(MOUSEEVENTF_LEFTUP);
                     qDebug() << "(Taskbar)#Release LButton";
 
@@ -1215,10 +1232,9 @@ void Widget::rotateTaskbarWindowInGroup(const QString& exePath, bool forward, in
                         }
                     });
                 });
-                return t;
-            }();
-            timer->stop();
-            timer->start();
+            }
+            taskbarReleaseTimer->stop();
+            taskbarReleaseTimer->start();
         }
         qDebug() << "(Taskbar)Switch to" << hwnd << Util::getWindowTitle(hwnd) << Util::getClassName(hwnd);
     } else {
@@ -1268,7 +1284,8 @@ void Widget::clearGroupWindowOrder() {
 }
 
 void Widget::updateThumbnailForCurrentItem() {
-    if (!isVisible() && !pinned) return;
+    // 仅在实际可见时注册与投射 DWM 缩略图，避免 prepareListWidget() 预选中阶段提前弹出悬浮卡片或重复 DWM IPC
+    if (!isVisible()) return;
     const auto mode = CFG.getThumbnailMode();
     cachedThumbMode = mode;
     if (mode == ThumbnailDisabled) {
@@ -1304,9 +1321,9 @@ void Widget::updateThumbnailForCurrentItem() {
                     hide();
                 }
             });
-            connect(popupWidget, &ThumbnailPopupWidget::windowCloseRequested, this, [this](HWND) {
+            connect(popupWidget, &ThumbnailPopupWidget::windowCloseRequested, this, [this](HWND hwnd) {
                 if (this->isVisible()) {
-                    closeCurrentItem();
+                    closeWindowByHwnd(hwnd);
                 }
             });
         }

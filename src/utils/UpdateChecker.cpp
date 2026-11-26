@@ -13,6 +13,7 @@ namespace {
 }
 
 UpdateChecker::UpdateChecker(QObject* parent) : QObject(parent) {
+    manager.setTransferTimeout(10000); // 与 UpdateDialog 一致的 10s 超时防护，避免死连接挂起 checking 标志
     periodicTimer.setInterval(kPeriodicIntervalMs);
     connect(&periodicTimer, &QTimer::timeout, this, &UpdateChecker::checkOnce);
 }
@@ -41,6 +42,17 @@ void UpdateChecker::checkOnce() {
     QNetworkRequest request(url);
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
     auto* reply = manager.get(request);
+    connect(reply, &QNetworkReply::redirected, this, [reply](const QUrl& redirectUrl) {
+        const auto host = redirectUrl.host();
+        const bool allowed = redirectUrl.scheme() == QStringLiteral("https")
+            && (host == QStringLiteral("github.com")
+                || host == QStringLiteral("api.github.com")
+                || host.endsWith(QStringLiteral(".githubusercontent.com")));
+        if (!allowed) {
+            qWarning() << "UpdateChecker: redirect to disallowed host:" << redirectUrl.toString();
+            reply->abort();
+        }
+    });
     connect(reply, &QNetworkReply::finished, this, [this, reply, current] {
         reply->deleteLater();
         checking = false;

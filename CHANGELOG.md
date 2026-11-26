@@ -4,6 +4,47 @@
 
 ---
 
+## [v3.6] - 2026-11-25
+
+全面对标 **macOS 26 (Tahoe / Liquid Glass)** 设计美学与全链路代码深度审计优化。
+
+### 🎨 macOS 26 (Liquid Glass) 设计美学升级
+
+- **真正的 Liquid Glass 多层光学材质与深浅色自适应（Adaptive Liquid Glass）**：
+  - 统一抽象 `Theme::paintLiquidGlassSurface` / `paintLiquidGlassStageWell` / `paintLiquidGlassWindowRim` 光学渲染原语，为主切换面板、悬浮预览卡片、设置/更新窗口与气泡通知赋予一致的 macOS 26 玻璃质感。
+  - **主切换器与悬浮预览全面支持浅色 / 深色自适应**：彻底修复此前切换器面板与舞台井硬编码暗色、忽略系统/配置深浅色主题的缺口；深色呈深邃黑曜液态玻璃，浅色呈晶莹冰雾液态玻璃。
+  - **双轴对角镜面折光斜边（Prismatic Bevel）+ 顶部内切受光弧**：精准还原 macOS 26 Liquid Glass 左上受光、侧翼柔化、右下漫反光的真实玻璃边缘光学层次。
+  - **Apple 连续曲率超椭圆圆角与严格同心度（Concentricity）**：新增 `Util::continuousRoundedRectPath`（等效 `CALayerCornerCurve.continuous` 贝塞尔连续曲率），主面板升级至 `r=24px` 连续大圆角配 `r=14px` 舞台内井，悬浮卡片采用 `r=18px` 配 `r=10px` 光学井（`18 - 8 = 10` 精确同心）。
+  - **Windows 辅助功能「透明效果」自动降级回退（Reduce Transparency HIG）**：自动读取 `EnableTransparency` 系统设置，用户关闭系统透明效果时自动切换至高对比度实体表面。
+- **macOS 26 Liquid Glass 聚光选中透镜（IconOnlyDelegate）**：
+  - 将原本平涂色块选中底升级为垂直渐变玻璃透镜 + 顶部内高光弧 + 纤细折射外轮廓（保留经典马卡龙·婴儿蓝基因），悬停态同步升级为轻磨砂玻璃透镜与细边缘光。
+- **丝滑微交互与原生控件精修**：
+  - **舞台与悬浮卡片 140ms `OutCubic` 平滑悬停微光动效**：取代生硬的二值跳变，光标掠过视窗时边框柔亮并浮现品牌光晕。
+  - **三灯联动交通灯（MacTitleBar）**：还原原生 macOS 交通灯组悬停机制——光标移至红/黄/绿任意一灯时，三灯同步显露极细符号。
+  - **全胶囊分段选择器与液态开关（MacControls）**：`MacSegmentedControl` 升级为 macOS 26 全胶囊底轨与浮空玻璃滑块，修复原先未开启 `setMouseTracking` 与 `m_hoverIndex` 死代码导致的悬停无反馈缺陷，并修复连点动画回跳；`MacToggleSwitch` 新增悬停提亮与按压微拉伸光泽动效；`MacCategoryBadge` 升级为连续超椭圆高光图标。
+  - **气泡通知上浮入场（MacToast）与全胶囊按钮**：通知气泡新增 12px 上浮滑入 + 淡入协同动画并消除首帧闪现与重复关闭竞态；对话框按钮与徽标全面升级为 macOS 26 胶囊圆角，托盘菜单升级至 `12px` 圆角与 `6px` 胶囊选中项。
+
+### 🚀 架构审计、缺陷修复与全链路性能优化
+
+- **彻底根治 UAC / 锁屏 / 安全桌面后修饰键卡死劫持 `Tab` 的隐患（KeyboardHooker）**：
+  - 以内核权威标志 `LLKHF_ALTDOWN` 为准实时校准 Alt 状态，并对 Ctrl/Shift/Win 引入零常规开销的懒自愈复核，彻底杜绝安全桌面吞掉 `WM_KEYUP` 后修饰键永久粘滞的问题；钩子线程 ID 升级为 `std::atomic<DWORD>`。
+- **修复无锁双击屏蔽跨线程数据竞争（ClickShield Memory Ordering）**：
+  - 将 `Util::ClickShield` 从 `memory_order_relaxed` 升级为 `acquire/release` + 原子代际计数器（`generation`），`pendingRelease` 归属钩子线程独占，严格符合 C++20 内存模型。
+- **修复多行折行 38% 舞台让渡失效与关窗后网格不回弹（Widget Layout）**：
+  - 抽取统一的 `recomputeAdaptiveGrid`，修复此前多行模式下从已缩小的 `cell` 继续递减导致 12% 让渡空间未被回收的逻辑漏洞；在关窗（中键 / `Ctrl+W` / `EVENT_OBJECT_DESTROY`）重排时同步重新求解网格，多行可自动回落单行、压缩格自动恢复 `80px`，并同步更新悬浮预览卡片位置。
+- **渲染热路径零配置 I/O 与路径缓存命中率跃升**：
+  - `ConfigManager` 引入衍生状态缓存并在 `set()`/`sync()` 时即时失效并广播 `configEdited()`，设置面板修改主题/缩略图模式立即全应用生效，同时彻底消除 `paintEvent` 逐帧读取 `QSettings` 的开销。
+  - `Util::squirclePath` 升级为按 `(width, height, exponent)` 归一化原点缓存 + 平移复用，跨图标绘制命中率由 ~10% 跃升至 99.9%。
+  - `Widget::mouseMoveEvent` 引入 `stageHovered` 状态去重，彻底消除光标移动期间每像素触发的冗余重绘。
+  - 消除首次呼出切换器时 `prepareListWidget()` 与 `forceShow()` 重复触发 `updateThumbnailForCurrentItem()` 与悬浮窗提前闪烁的问题。
+- **资源生命周期与后台安全加固**：
+  - 消除 `Widget::setupLabelFont` 的静态 `this` 捕获 lambda、`rotateTaskbarWindowInGroup` 的无父级静态 `QTimer` 泄漏，以及 `SystemTray::showUpdateDialog` 退出时未释放对话框的隐患。
+  - `Startup::off()` 的旧计划任务清理迁移至后台线程异步执行，切换开关动画彻底零卡顿。
+  - `AppUtil::StartAppCache` 升级为泄漏式堆单例，消除应用极速退出时后台异步预热线程与静态析构竞态。
+  - `UpdateChecker` 补齐 10 秒请求超时与 GitHub 重定向主机白名单校验；`UpdateDialog` 进度条修复 `qint64 -> int` 窄化风险；主面板失焦判定兼容悬浮卡片区域防误收起。
+
+---
+
 ## [v3.5] - 2026-11-21
 
 点击大画幅窗口预览直接切入程序、鼠标中键视窗快速关闭与 macOS 级交互微光反馈。

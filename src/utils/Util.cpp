@@ -33,6 +33,7 @@
 #include <QCache>
 #include <QStringView>
 #include <atomic>
+#include <cstdint>
 
 namespace Util {
     QString getWindowTitle(HWND hwnd) {
@@ -831,42 +832,110 @@ namespace Util {
 
     /// 超椭圆（squircle）路径：连续曲率圆角，macOS 风格方圆角（用于选中底绘制）
     QPainterPath squirclePath(const QRectF& rect, qreal exponent) {
-        // 记忆化：同一弹窗内 rect/exponent 恒定（选中底内缩 1px、悬停底不缩，共两种组合），
-        // 而选中放大动画期间每帧重绘都会调用——缓存最近 3 个参数组合，避免逐帧重算 81 个采样点
+        // 归一化缓存：以 (width, height, exponent) 为键缓存原点路径，再平移到 rect.topLeft()，
+        // 不同图标位置（x=0,80,160...）100% 命中同一模板路径，彻底消除重复三角函数与幂运算
         struct CacheEntry {
-            QRectF rect;
+            qreal width = 0;
+            qreal height = 0;
             qreal exponent = 0;
             QPainterPath path;
         };
-        static CacheEntry cache[3];
+        static CacheEntry cache[8];
         static int nextSlot = 0;
+        const qreal w = rect.width(), h = rect.height();
         for (const auto& entry: cache) {
-            if (entry.exponent == exponent && entry.rect == rect && !entry.path.isEmpty())
-                return entry.path;
+            if (entry.exponent == exponent && qFuzzyCompare(entry.width, w) && qFuzzyCompare(entry.height, h) && !entry.path.isEmpty())
+                return entry.path.translated(rect.topLeft());
         }
 
         constexpr qreal kPi = 3.14159265358979323846;
         constexpr int stepsPerQuadrant = 20;
         QPainterPath path;
-        const auto center = rect.center();
-        const qreal a = rect.width() / 2.0, b = rect.height() / 2.0;
+        const qreal cx = w / 2.0, cy = h / 2.0;
+        const qreal a = cx, b = cy;
         const int total = stepsPerQuadrant * 4;
         for (int i = 0; i <= total; ++i) {
             const qreal t = 2.0 * kPi * i / total;
             const qreal ct = std::cos(t), st = std::sin(t);
-            const QPointF p(center.x() + a * std::copysign(std::pow(std::fabs(ct), 2.0 / exponent), ct),
-                            center.y() + b * std::copysign(std::pow(std::fabs(st), 2.0 / exponent), st));
+            const QPointF p(cx + a * std::copysign(std::pow(std::fabs(ct), 2.0 / exponent), ct),
+                            cy + b * std::copysign(std::pow(std::fabs(st), 2.0 / exponent), st));
             if (i == 0) path.moveTo(p);
             else path.lineTo(p);
         }
         path.closeSubpath();
 
         auto& slot = cache[nextSlot];
-        nextSlot = (nextSlot + 1) % 3;
-        slot.rect = rect;
+        nextSlot = (nextSlot + 1) % 8;
+        slot.width = w;
+        slot.height = h;
         slot.exponent = exponent;
         slot.path = path;
-        return path;
+        return path.translated(rect.topLeft());
+    }
+
+    /// macOS 26 连续曲率圆角矩形（CALayerCornerCurve.continuous 等效超椭圆贝塞尔平滑过渡）
+    QPainterPath continuousRoundedRectPath(const QRectF& rect, qreal radius) {
+        const qreal w = rect.width(), h = rect.height();
+        if (w <= 0.0 || h <= 0.0) return {};
+        const qreal halfMin = qMin(w, h) * 0.5;
+        const qreal r = qBound(0.0, radius, halfMin);
+        if (r <= 0.0) {
+            QPainterPath p;
+            p.addRect(rect);
+            return p;
+        }
+
+        struct CacheEntry {
+            qreal width = 0;
+            qreal height = 0;
+            qreal radius = 0;
+            QPainterPath path;
+        };
+        static CacheEntry cache[8];
+        static int nextSlot = 0;
+        for (const auto& entry: cache) {
+            if (qFuzzyCompare(entry.radius, r) && qFuzzyCompare(entry.width, w) && qFuzzyCompare(entry.height, h) && !entry.path.isEmpty())
+                return entry.path.translated(rect.topLeft());
+        }
+
+        // Apple continuous corner: 沿直边延展 1.20r 以柔和爬升曲率，0.32e 处放置控制点使 45° 对角净空与圆角 r 严格等距（保同心度）
+        const qreal e = qMin(r * 1.20, halfMin);
+        const qreal k = e * 0.32;
+
+        QPainterPath path;
+        path.moveTo(e, 0.0);
+        path.lineTo(w - e, 0.0);
+        path.cubicTo(w - k, 0.0, w, k, w, e);
+        path.lineTo(w, h - e);
+        path.cubicTo(w, h - k, w - k, h, w - e, h);
+        path.lineTo(e, h);
+        path.cubicTo(k, h, 0.0, h - k, 0.0, h - e);
+        path.lineTo(0.0, e);
+        path.cubicTo(0.0, k, k, 0.0, e, 0.0);
+        path.closeSubpath();
+
+        auto& slot = cache[nextSlot];
+        nextSlot = (nextSlot + 1) % 8;
+        slot.width = w;
+        slot.height = h;
+        slot.radius = r;
+        slot.path = path;
+        return path.translated(rect.topLeft());
+    }
+
+    bool isSystemTransparencyEnabled() {
+        DWORD val = 1;
+        DWORD size = sizeof(val);
+        const LONG rc = RegGetValueW(
+            HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"EnableTransparency",
+            RRF_RT_REG_DWORD,
+            nullptr,
+            &val,
+            &size
+        );
+        return (rc != ERROR_SUCCESS) || (val != 0);
     }
 
     /// Input: 需要物理坐标，不要用`QCursor::pos`（逻辑坐标），特别是开启了DPI缩放的情况下
@@ -904,21 +973,33 @@ bool isTaskbarWindow(HWND hwnd) {
 
     // ----------------- 双击屏蔽（单击即切换后，吞掉双击的第二下） -----------------
     // 复用 TaskbarWheelHooker 的单例 WH_MOUSE_LL 钩子，消除每次弹窗频繁 Set/UnhookWindowsHookEx 的内核抖动
+    // 无锁内存序保证：GUI 线程写坐标/期限后 release 发布 generation+armed；钩子线程 acquire 读取并独享 pendingRelease
     namespace {
         struct ClickShield {
             std::atomic_bool armed{false};
-            POINT pos{};
-            ULONGLONG untilMs = 0;
-            bool pendingRelease = false; // 已吞下该次按下，连带吞掉其释放
+            std::atomic<LONG> posX{0};
+            std::atomic<LONG> posY{0};
+            std::atomic<ULONGLONG> untilMs{0};
+            std::atomic<uint32_t> generation{0};
+            // 仅钩子线程读写：按 generation 隔离，避免跨线程数据竞争
+            uint32_t hookSeenGen = 0;
+            bool pendingRelease = false;
         } g_clickShield;
     } // anonymous namespace
 
     bool processClickShield(WPARAM wParam, LPARAM lParam) {
-        if (!g_clickShield.armed.load(std::memory_order_relaxed))
+        if (!g_clickShield.armed.load(std::memory_order_acquire))
             return false;
 
-        if (GetTickCount64() > g_clickShield.untilMs) {
-            g_clickShield.armed.store(false, std::memory_order_relaxed);
+        const uint32_t gen = g_clickShield.generation.load(std::memory_order_acquire);
+        if (g_clickShield.hookSeenGen != gen) {
+            g_clickShield.hookSeenGen = gen;
+            g_clickShield.pendingRelease = false;
+        }
+
+        const ULONGLONG until = g_clickShield.untilMs.load(std::memory_order_relaxed);
+        if (GetTickCount64() > until) {
+            g_clickShield.armed.store(false, std::memory_order_release);
             g_clickShield.pendingRelease = false;
             return false;
         }
@@ -927,17 +1008,20 @@ bool isTaskbarWindow(HWND hwnd) {
             auto* d = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
             const int tolX = qMax(6, GetSystemMetrics(SM_CXDOUBLECLK) / 2);
             const int tolY = qMax(6, GetSystemMetrics(SM_CYDOUBLECLK) / 2);
-            if (qAbs(d->pt.x - g_clickShield.pos.x) <= tolX && qAbs(d->pt.y - g_clickShield.pos.y) <= tolY) {
+            const LONG targetX = g_clickShield.posX.load(std::memory_order_relaxed);
+            const LONG targetY = g_clickShield.posY.load(std::memory_order_relaxed);
+            if (qAbs(d->pt.x - targetX) <= tolX && qAbs(d->pt.y - targetY) <= tolY) {
                 g_clickShield.pendingRelease = true;
                 return true; // 吞掉双击的第二下
             }
-            g_clickShield.armed.store(false, std::memory_order_relaxed);
+            g_clickShield.armed.store(false, std::memory_order_release);
         } else if (wParam == WM_LBUTTONUP && g_clickShield.pendingRelease) {
             g_clickShield.pendingRelease = false;
-            g_clickShield.armed.store(false, std::memory_order_relaxed);
+            g_clickShield.armed.store(false, std::memory_order_release);
             return true; // 连带吞掉对应的释放
         } else if (wParam == WM_RBUTTONDOWN || wParam == WM_MBUTTONDOWN || wParam == WM_XBUTTONDOWN) {
-            g_clickShield.armed.store(false, std::memory_order_relaxed);
+            g_clickShield.pendingRelease = false;
+            g_clickShield.armed.store(false, std::memory_order_release);
         }
         return false;
     }
@@ -945,15 +1029,17 @@ bool isTaskbarWindow(HWND hwnd) {
     void armClickShield(int msecs) {
         POINT pos{};
         GetCursorPos(&pos);
-        g_clickShield.pos = pos;
-        g_clickShield.untilMs = GetTickCount64() + msecs;
-        g_clickShield.pendingRelease = false;
-        g_clickShield.armed.store(true, std::memory_order_relaxed);
+        g_clickShield.armed.store(false, std::memory_order_release);
+        g_clickShield.posX.store(pos.x, std::memory_order_relaxed);
+        g_clickShield.posY.store(pos.y, std::memory_order_relaxed);
+        g_clickShield.untilMs.store(GetTickCount64() + static_cast<ULONGLONG>(qMax(0, msecs)), std::memory_order_relaxed);
+        g_clickShield.generation.fetch_add(1, std::memory_order_release);
+        g_clickShield.armed.store(true, std::memory_order_release);
     }
 
     void disarmClickShield() {
-        g_clickShield.armed.store(false, std::memory_order_relaxed);
-        g_clickShield.pendingRelease = false;
+        g_clickShield.armed.store(false, std::memory_order_release);
+        g_clickShield.generation.fetch_add(1, std::memory_order_release);
     }
     void nudgeWindowRendering(HWND hwnd) {
         if (!hwnd || !IsWindow(hwnd) || IsIconic(hwnd)) return;

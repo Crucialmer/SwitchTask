@@ -329,24 +329,30 @@ namespace AppUtil {
         bool isReady = false;
         std::atomic_bool isBuilding{false};
     };
-    static StartAppCache g_startAppCache;
+    // 泄漏式堆单例（进程退出不析构）：与 Util::PrefetchState 同一纪律，彻底消除早退时后台线程与静态析构的竞态崩溃
+    StartAppCache& startAppCache() {
+        static auto* cache = new StartAppCache;
+        return *cache;
+    }
 
     void prefetchStartAppsAsync() {
+        auto& cache = startAppCache();
         bool expected = false;
-        if (!g_startAppCache.isBuilding.compare_exchange_strong(expected, true))
+        if (!cache.isBuilding.compare_exchange_strong(expected, true))
             return; // 已触发预取或已在进行中
 
         auto* thread = QThread::create([] {
             const HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
             const auto list = getStartAppList();
             {
-                QMutexLocker locker(&g_startAppCache.mutex);
-                g_startAppCache.app2Path.clear();
+                auto& cacheRef = startAppCache();
+                QMutexLocker locker(&cacheRef.mutex);
+                cacheRef.app2Path.clear();
                 for (const auto& [name, appId, exePath]: list) {
-                    g_startAppCache.app2Path.insert(appId, exePath);
-                    g_startAppCache.app2Path.insert(name, exePath);
+                    cacheRef.app2Path.insert(appId, exePath);
+                    cacheRef.app2Path.insert(name, exePath);
                 }
-                g_startAppCache.isReady = true;
+                cacheRef.isReady = true;
             }
             if (SUCCEEDED(hr))
                 CoUninitialize();
@@ -368,19 +374,20 @@ namespace AppUtil {
         static QStringList BlackList;
         if (BlackList.contains(appid)) return {};
 
+        auto& cache = startAppCache();
         int retry = 1;
         do {
             {
-                QMutexLocker locker(&g_startAppCache.mutex);
-                if (auto exe = g_startAppCache.app2Path.value(appid); !exe.isEmpty()) {
+                QMutexLocker locker(&cache.mutex);
+                if (auto exe = cache.app2Path.value(appid); !exe.isEmpty()) {
                     qDebug() << "Get path by AppId:" << appid;
                     return exe;
                 }
-                if (auto exe = g_startAppCache.app2Path.value(appName); !exe.isEmpty()) {
+                if (auto exe = cache.app2Path.value(appName); !exe.isEmpty()) {
                     qDebug() << "Get path by name:" << appName;
                     return exe;
                 }
-                if (auto exe = g_startAppCache.desc2Path.value(appName); !exe.isEmpty()) {
+                if (auto exe = cache.desc2Path.value(appName); !exe.isEmpty()) {
                     qDebug() << "Get path by description:" << appName;
                     return exe;
                 }
@@ -395,8 +402,8 @@ namespace AppUtil {
             for (const auto& path: paths) {
                 QString description = Util::getFileDescription(path); // slow
                 {
-                    QMutexLocker locker(&g_startAppCache.mutex);
-                    g_startAppCache.desc2Path.insert(description, path);
+                    QMutexLocker locker(&cache.mutex);
+                    cache.desc2Path.insert(description, path);
                 }
                 if (description == appName) {
                     qDebug() << "Get path by description_:" << appName;
@@ -409,17 +416,17 @@ namespace AppUtil {
             // 如果后台异步尚未完成且查无结果，同步构建一次作为兜底保证
             bool ready = false;
             {
-                QMutexLocker locker(&g_startAppCache.mutex);
-                ready = g_startAppCache.isReady;
+                QMutexLocker locker(&cache.mutex);
+                ready = cache.isReady;
             }
             if (!ready) {
                 const auto list = getStartAppList();
-                QMutexLocker locker(&g_startAppCache.mutex);
+                QMutexLocker locker(&cache.mutex);
                 for (const auto& [name, appId, exePath]: list) {
-                    g_startAppCache.app2Path.insert(appId, exePath);
-                    g_startAppCache.app2Path.insert(name, exePath);
+                    cache.app2Path.insert(appId, exePath);
+                    cache.app2Path.insert(name, exePath);
                 }
-                g_startAppCache.isReady = true;
+                cache.isReady = true;
             }
             qDebug() << "Not Found. Rebuild App2ExePathMap";
         } while (true);

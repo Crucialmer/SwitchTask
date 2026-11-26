@@ -5,7 +5,9 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPainter>
+#include <QLinearGradient>
 #include <QMouseEvent>
+#include <QEnterEvent>
 #include <QPoint>
 #include <QScreen>
 #include <QGuiApplication>
@@ -14,7 +16,7 @@
 #include "Theme.h"
 #include "ConfigManager.h"
 
-/// macOS 交通灯控制按钮（红灯关闭、黄灯最小化、绿灯缩放）
+/// macOS 交通灯控制按钮（红灯关闭、黄灯最小化、绿灯缩放；支持原厂三灯联动组悬停显符）
 class MacTrafficButton : public QWidget {
 public:
     enum Type { Close, Minimize, Zoom };
@@ -24,6 +26,13 @@ public:
         : QWidget(parent), m_type(type) {
         setFixedSize(13, 13);
         setCursor(Qt::ArrowCursor);
+    }
+
+    void setGroupHovered(bool hovered) {
+        if (m_groupHover != hovered) {
+            m_groupHover = hovered;
+            update();
+        }
     }
 
 protected:
@@ -43,10 +52,10 @@ protected:
         }
     }
     void mouseReleaseEvent(QMouseEvent* e) override {
-        if (m_pressed && e->button() == Qt::LeftButton && rect().contains(e->pos())) {
+        if (m_pressed && e->button() == Qt::LeftButton) {
             m_pressed = false;
             update();
-            if (onClick) onClick();
+            if (rect().contains(e->pos()) && onClick) onClick();
         }
     }
     void paintEvent(QPaintEvent*) override {
@@ -56,37 +65,40 @@ protected:
         QColor baseColor, borderColor;
         switch (m_type) {
         case Close:
-            baseColor = m_pressed ? QColor(0xBF, 0x36, 0x30) : (m_hover ? QColor(0xE0, 0x44, 0x3E) : QColor(0xFF, 0x5F, 0x56));
+            baseColor = m_pressed ? QColor(0xBF, 0x36, 0x30) : (m_hover ? QColor(0xE8, 0x4C, 0x45) : QColor(0xFF, 0x5F, 0x57));
             borderColor = QColor(0xE0, 0x44, 0x3E);
             break;
         case Minimize:
-            baseColor = m_pressed ? QColor(0xC2, 0x7E, 0x1A) : (m_hover ? QColor(0xDE, 0xA1, 0x23) : QColor(0xFF, 0xBD, 0x2E));
+            baseColor = m_pressed ? QColor(0xC2, 0x7E, 0x1A) : (m_hover ? QColor(0xE5, 0xA8, 0x26) : QColor(0xFE, 0xBC, 0x2E));
             borderColor = QColor(0xDE, 0xA1, 0x23);
             break;
         case Zoom:
-            baseColor = m_pressed ? QColor(0x1B, 0x82, 0x25) : (m_hover ? QColor(0x1A, 0xAB, 0x29) : QColor(0x27, 0xC9, 0x3F));
+            baseColor = m_pressed ? QColor(0x1B, 0x82, 0x25) : (m_hover ? QColor(0x1F, 0xB2, 0x36) : QColor(0x28, 0xC8, 0x40));
             borderColor = QColor(0x1A, 0xAB, 0x29);
             break;
         }
 
-        const QRectF r(0.5, 0.5, 12, 12);
-        p.setPen(borderColor);
-        p.setBrush(baseColor);
+        const QRectF r(0.5, 0.5, 12.0, 12.0);
+        QLinearGradient gloss(r.topLeft(), r.bottomLeft());
+        gloss.setColorAt(0.0, baseColor.lighter(108));
+        gloss.setColorAt(1.0, baseColor);
+        p.setPen(QPen(borderColor, 0.8));
+        p.setBrush(gloss);
         p.drawEllipse(r);
 
-        // 悬停显示 macOS 经典符号
-        if (m_hover) {
+        // macOS 原生组悬停：悬停任意交通灯时三灯同时显露极细抗锯齿符号
+        if (m_hover || m_groupHover) {
             if (m_type == Close) {
-                p.setPen(QPen(QColor(77, 0, 0, 180), 1.2, Qt::SolidLine, Qt::RoundCap));
-                p.drawLine(QPointF(4.0, 4.0), QPointF(9.0, 9.0));
-                p.drawLine(QPointF(9.0, 4.0), QPointF(4.0, 9.0));
+                p.setPen(QPen(QColor(77, 0, 0, 195), 1.25, Qt::SolidLine, Qt::RoundCap));
+                p.drawLine(QPointF(4.1, 4.1), QPointF(8.9, 8.9));
+                p.drawLine(QPointF(8.9, 4.1), QPointF(4.1, 8.9));
             } else if (m_type == Minimize) {
-                p.setPen(QPen(QColor(153, 87, 0, 180), 1.2, Qt::SolidLine, Qt::RoundCap));
-                p.drawLine(QPointF(3.5, 6.5), QPointF(9.5, 6.5));
+                p.setPen(QPen(QColor(153, 87, 0, 195), 1.25, Qt::SolidLine, Qt::RoundCap));
+                p.drawLine(QPointF(3.6, 6.5), QPointF(9.4, 6.5));
             } else if (m_type == Zoom) {
-                p.setPen(QPen(QColor(0, 102, 0, 180), 1.2, Qt::SolidLine, Qt::RoundCap));
-                p.drawLine(QPointF(6.5, 3.5), QPointF(6.5, 9.5));
-                p.drawLine(QPointF(3.5, 6.5), QPointF(9.5, 6.5));
+                p.setPen(QPen(QColor(0, 102, 0, 195), 1.25, Qt::SolidLine, Qt::RoundCap));
+                p.drawLine(QPointF(6.5, 3.6), QPointF(6.5, 9.4));
+                p.drawLine(QPointF(3.6, 6.5), QPointF(9.4, 6.5));
             }
         }
     }
@@ -94,41 +106,77 @@ protected:
 private:
     Type m_type;
     bool m_hover = false;
+    bool m_groupHover = false;
     bool m_pressed = false;
 };
 
-/// macOS 26 原生自绘标题栏：红黄绿三色交通灯 + 居中标题 + 平滑拖拽移动窗口
+/// 交通灯联动容器：统一捕获三灯区域的进入/离开事件，驱动同步显符
+class MacTrafficLightGroup : public QWidget {
+public:
+    explicit MacTrafficLightGroup(QWidget* parent = nullptr) : QWidget(parent) {
+        auto* layout = new QHBoxLayout(this);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(8);
+
+        closeBtn = new MacTrafficButton(MacTrafficButton::Close, this);
+        minBtn = new MacTrafficButton(MacTrafficButton::Minimize, this);
+        zoomBtn = new MacTrafficButton(MacTrafficButton::Zoom, this);
+
+        layout->addWidget(closeBtn);
+        layout->addWidget(minBtn);
+        layout->addWidget(zoomBtn);
+        setFixedSize(13 * 3 + 8 * 2, 13);
+    }
+
+    MacTrafficButton* closeBtn = nullptr;
+    MacTrafficButton* minBtn = nullptr;
+    MacTrafficButton* zoomBtn = nullptr;
+
+protected:
+    void enterEvent(QEnterEvent* e) override {
+        QWidget::enterEvent(e);
+        setAllHovered(true);
+    }
+    void leaveEvent(QEvent* e) override {
+        QWidget::leaveEvent(e);
+        setAllHovered(false);
+    }
+
+private:
+    void setAllHovered(bool hovered) {
+        closeBtn->setGroupHovered(hovered);
+        minBtn->setGroupHovered(hovered);
+        zoomBtn->setGroupHovered(hovered);
+    }
+};
+
+/// macOS 26 原生自绘标题栏：三灯联动交通灯 + 居中标题 + 平滑拖拽移动窗口
 class MacTitleBar : public QWidget {
 public:
     explicit MacTitleBar(const QString& title, QWidget* parentWindow = nullptr)
         : QWidget(parentWindow), m_window(parentWindow) {
-        setFixedHeight(38);
+        setFixedHeight(40);
         setObjectName("macTitleBar");
 
         auto* layout = new QHBoxLayout(this);
-        layout->setContentsMargins(14, 0, 14, 0);
+        layout->setContentsMargins(16, 0, 16, 0);
         layout->setSpacing(8);
 
-        m_closeBtn = new MacTrafficButton(MacTrafficButton::Close, this);
-        m_minBtn = new MacTrafficButton(MacTrafficButton::Minimize, this);
-        m_zoomBtn = new MacTrafficButton(MacTrafficButton::Zoom, this);
-
-        m_closeBtn->onClick = [this] {
+        m_lights = new MacTrafficLightGroup(this);
+        m_lights->closeBtn->onClick = [this] {
             if (m_window) m_window->close();
         };
-        m_minBtn->onClick = [this] {
+        m_lights->minBtn->onClick = [this] {
             if (m_window) m_window->showMinimized();
         };
-        m_zoomBtn->onClick = [this] {
+        m_lights->zoomBtn->onClick = [this] {
             if (m_window) {
                 if (m_window->isMaximized()) m_window->showNormal();
                 else m_window->showMaximized();
             }
         };
 
-        layout->addWidget(m_closeBtn);
-        layout->addWidget(m_minBtn);
-        layout->addWidget(m_zoomBtn);
+        layout->addWidget(m_lights, 0, Qt::AlignVCenter);
 
         m_titleLabel = new QLabel(title, this);
         m_titleLabel->setObjectName("macTitleBarTitle");
@@ -138,8 +186,8 @@ public:
         layout->addWidget(m_titleLabel, 1);
 
         auto* rightSpacer = new QWidget(this);
-        rightSpacer->setFixedSize(13 * 3 + 8 * 2, 13);
-        layout->addWidget(rightSpacer);
+        rightSpacer->setFixedSize(m_lights->size());
+        layout->addWidget(rightSpacer, 0, Qt::AlignVCenter);
     }
 
     void setTitle(const QString& title) {
@@ -180,15 +228,13 @@ protected:
     }
     void paintEvent(QPaintEvent*) override {
         QPainter p(this);
-        p.setPen(Theme::isDark() ? QColor(255, 255, 255, 20) : QColor(0, 0, 0, 18));
-        p.drawLine(0, height() - 1, width(), height() - 1);
+        p.setPen(Theme::isDark() ? QColor(255, 255, 255, 22) : QColor(0, 0, 0, 16));
+        p.drawLine(14, height() - 1, width() - 14, height() - 1);
     }
 
 private:
     QWidget* m_window = nullptr;
-    MacTrafficButton* m_closeBtn = nullptr;
-    MacTrafficButton* m_minBtn = nullptr;
-    MacTrafficButton* m_zoomBtn = nullptr;
+    MacTrafficLightGroup* m_lights = nullptr;
     QLabel* m_titleLabel = nullptr;
     QPoint m_dragPos;
     bool m_dragging = false;

@@ -44,12 +44,8 @@ public:
 
 public:
     DisplayMonitor getDisplayMonitor() {
-        auto monitor = get("DisplayMonitor", DisplayMonitor::MouseMonitor).toInt();
-        if (monitor < 0 || monitor >= DisplayMonitor::EnumCount) {
-            qWarning() << "Invalid DisplayMonitor enum" << monitor;
-            monitor = DisplayMonitor::MouseMonitor;
-        }
-        return static_cast<DisplayMonitor>(monitor);
+        ensureCache();
+        return m_cachedMonitor;
     }
 
     void setDisplayMonitor(DisplayMonitor monitor) {
@@ -58,27 +54,14 @@ public:
 
     /// 深浅色模式：`ThemeMode = auto / light / dark`（也可写 0/1/2；非法值回退 auto 并告警）
     ThemeMode getThemeMode() {
-        const auto raw = get("ThemeMode", QStringLiteral("auto")).toString().trimmed().toLower();
-        if (raw == "light" || raw == "1")
-            return ThemeLight;
-        if (raw == "dark" || raw == "2")
-            return ThemeDark;
-        if (!(raw == "auto" || raw == "0" || raw.isEmpty()))
-            qWarning() << "Invalid ThemeMode (expect auto/light/dark), fallback to auto:" << raw;
-        return ThemeAuto;
+        ensureCache();
+        return m_cachedTheme;
     }
 
     /// 实时缩略图模式：`thumbnail/mode = integrated / popup / disabled`（以方案2舞台集成为默认设置）
     ThumbnailMode getThumbnailMode() {
-        const auto raw = get("thumbnail/mode", QStringLiteral("integrated")).toString().trimmed().toLower();
-        if (raw == "popup" || raw == "floating" || raw == "1")
-            return ThumbnailPopup;
-        if (raw == "disabled" || raw == "none" || raw == "off" || raw == "2")
-            return ThumbnailDisabled;
-        if (raw == "integrated" || raw == "stage" || raw == "0" || raw.isEmpty())
-            return ThumbnailIntegrated;
-        qWarning() << "Invalid thumbnail/mode (expect integrated/popup/disabled), fallback to integrated:" << raw;
-        return ThumbnailIntegrated;
+        ensureCache();
+        return m_cachedThumbMode;
     }
 
     void setThumbnailMode(ThumbnailMode mode) {
@@ -88,8 +71,52 @@ public:
         set("thumbnail/mode", val);
     }
 
+protected:
+    void onConfigMutated() override {
+        m_cacheValid = false;
+    }
+
 private:
     explicit ConfigManager(const QString& filename) : ConfigManagerBase(filename) {}
+
+    void ensureCache() {
+        if (m_cacheValid) return;
+        m_cacheValid = true;
+
+        int monitor = get("DisplayMonitor", DisplayMonitor::MouseMonitor).toInt();
+        if (monitor < 0 || monitor >= DisplayMonitor::EnumCount) {
+            qWarning() << "Invalid DisplayMonitor enum" << monitor;
+            monitor = DisplayMonitor::MouseMonitor;
+        }
+        m_cachedMonitor = static_cast<DisplayMonitor>(monitor);
+
+        const auto themeRaw = get("ThemeMode", QStringLiteral("auto")).toString().trimmed().toLower();
+        if (themeRaw == "light" || themeRaw == "1")
+            m_cachedTheme = ThemeLight;
+        else if (themeRaw == "dark" || themeRaw == "2")
+            m_cachedTheme = ThemeDark;
+        else {
+            if (!(themeRaw == "auto" || themeRaw == "0" || themeRaw.isEmpty()))
+                qWarning() << "Invalid ThemeMode (expect auto/light/dark), fallback to auto:" << themeRaw;
+            m_cachedTheme = ThemeAuto;
+        }
+
+        const auto thumbRaw = get("thumbnail/mode", QStringLiteral("integrated")).toString().trimmed().toLower();
+        if (thumbRaw == "popup" || thumbRaw == "floating" || thumbRaw == "1")
+            m_cachedThumbMode = ThumbnailPopup;
+        else if (thumbRaw == "disabled" || thumbRaw == "none" || thumbRaw == "off" || thumbRaw == "2")
+            m_cachedThumbMode = ThumbnailDisabled;
+        else {
+            if (!(thumbRaw == "integrated" || thumbRaw == "stage" || thumbRaw == "0" || thumbRaw.isEmpty()))
+                qWarning() << "Invalid thumbnail/mode (expect integrated/popup/disabled), fallback to integrated:" << thumbRaw;
+            m_cachedThumbMode = ThumbnailIntegrated;
+        }
+    }
+
+    bool m_cacheValid = false;
+    DisplayMonitor m_cachedMonitor = DisplayMonitor::MouseMonitor;
+    ThemeMode m_cachedTheme = ThemeAuto;
+    ThumbnailMode m_cachedThumbMode = ThumbnailIntegrated;
 };
 
 #endif //WIN_SWITCHER_CONFIGMANAGER_H

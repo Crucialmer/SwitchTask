@@ -24,6 +24,8 @@ public:
     void set(QAnyStringView key, const QVariant& value) {
         settings.setValue(key, value);
         settings.sync(); // 立即刷盘，避免崩溃丢失最近修改（对自启动等关键设置尤其重要）
+        onConfigMutated();
+        emit configEdited();
     }
 
     /// Writes any unsaved changes to permanent storage, and reloads any settings that have been changed in the meantime by another application.
@@ -31,6 +33,7 @@ public:
         // This function is called automatically from QSettings's destructor and by the event loop at regular intervals,
         // so you normally don't need to call it yourself.
         settings.sync();
+        onConfigMutated();
     }
 
     /// Edit config file with `notepad.exe` & emit `configEdited` signal when finished
@@ -59,16 +62,18 @@ public:
     }
 
 protected:
+    virtual void onConfigMutated() {}
+
     explicit ConfigManagerBase(const QString& filename) : settings(filename, QSettings::IniFormat) {
         connect(&proc_editor, &QProcess::finished, this, [this] {
             qDebug() << "#Config file edit finished";
-            sync(); // reload
+            sync(); // reload + invalidate derived cache
             emit configEdited();
         });
     }
 
 signals:
-    void configEdited(); // edit via `Settings` action, not other ways
+    void configEdited(); // 配置变更（设置面板实时修改或文本编辑器保存关闭均会触发）
 };
 
 

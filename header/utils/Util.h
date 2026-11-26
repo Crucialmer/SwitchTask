@@ -47,8 +47,12 @@ namespace Util {
     POINT getCursorPos();
     HWND getCurrentTaskListThumbnailWnd();
     bool isTaskbarWindow(HWND hwnd);
-    /// 超椭圆（squircle）路径：连续曲率圆角，macOS 风格方圆角（用于选中底绘制）
+    /// 超椭圆（squircle）路径：连续曲率圆角，macOS 风格方圆角（用于选中底绘制；按尺寸归一化缓存）
     QPainterPath squirclePath(const QRectF& rect, qreal exponent = 5.0);
+    /// macOS 26 连续曲率圆角矩形（CALayerCornerCurve.continuous 等效超椭圆贝塞尔平滑过渡，按尺寸+半径缓存）
+    QPainterPath continuousRoundedRectPath(const QRectF& rect, qreal radius);
+    /// 检测 Windows 辅助功能/个性化「透明效果」是否开启（关闭时回退至高对比度实体表面，符合 macOS 26 HIG）
+    bool isSystemTransparencyEnabled();
     /// 唤醒目标窗口渲染管道（针对 Chrome/Edge/视频播放/全屏等 DirectComposition/MPO 场景，防后台冻结与黑屏）
     void nudgeWindowRendering(HWND hwnd);
 } // Util

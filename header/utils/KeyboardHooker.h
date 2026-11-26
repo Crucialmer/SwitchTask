@@ -4,6 +4,7 @@
 #include <Windows.h>
 #include <QWidget>
 #include <QPointer>
+#include <atomic>
 #include <thread>
 
 class KeyboardHooker {
@@ -18,7 +19,7 @@ public:
 
 private:
     std::thread m_thread;
-    DWORD m_threadId = 0;
+    std::atomic<DWORD> m_threadId{0};
 };
 
 #endif //WIN_SWITCHER_KEYBOARDHOOKER_H

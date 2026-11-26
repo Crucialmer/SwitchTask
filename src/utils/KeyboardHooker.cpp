@@ -54,13 +54,34 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                 s_wDown = false;
             }
 
-            // Alt 状态：由硬件标志 LLKHF_ALTDOWN 或内部状态判断，零系统调用
-            const bool isAltPressed = ((pKeyBoard->flags & LLKHF_ALTDOWN) != 0) || s_altDown;
+            // Alt 状态以硬件内核标志 LLKHF_ALTDOWN 为准，防止 UAC/锁屏/安全桌面吞掉 WM_KEYUP 后 s_altDown 永久卡死劫持 Tab
+            const bool isAltKey = (pKeyBoard->vkCode == VK_LMENU || pKeyBoard->vkCode == VK_RMENU || pKeyBoard->vkCode == VK_MENU);
+            if (!isAltKey) {
+                s_altDown = (pKeyBoard->flags & LLKHF_ALTDOWN) != 0;
+            }
+            const bool isAltPressed = ((pKeyBoard->flags & LLKHF_ALTDOWN) != 0) || (isAltKey && s_altDown);
+
+            // 懒自愈修饰键：正常按键路径零系统调用；仅当状态机认为某修饰键按下且触发快捷键分支时复核硬件态，根治 UAC/锁屏掉 keyup 导致的粘滞
+            auto verifyModifier = [](bool& cached, int vk) -> bool {
+                if (!cached) return false;
+                if ((GetAsyncKeyState(vk) & 0x8000) == 0) {
+                    cached = false;
+                }
+                return cached;
+            };
+            auto verifyWin = []() -> bool {
+                if (!s_winDown) return false;
+                if ((GetAsyncKeyState(VK_LWIN) & 0x8000) == 0 && (GetAsyncKeyState(VK_RWIN) & 0x8000) == 0) {
+                    s_winDown = false;
+                }
+                return s_winDown;
+            };
+
             auto* targetWidget = Hooker::receiver.data();
 
             if (isAltPressed && targetWidget) {
                 if (pKeyBoard->vkCode == VK_TAB) {
-                    const bool isCtrlPressed = s_ctrlDown;
+                    const bool isCtrlPressed = verifyModifier(s_ctrlDown, VK_CONTROL);
                     if (isCtrlPressed) {
                         if (s_ctrlTabDown)
                             return 1; // 自动重复事件，忽略（只处理首次按下）
@@ -72,10 +93,11 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                     }
                     qCDebug(lcHook) << "Alt+Tab detected!";
                     const bool isPopupActive = Hooker::s_receiverHwnd && IsWindowVisible(Hooker::s_receiverHwnd) && !IsIconic(Hooker::s_receiverHwnd);
+                    const bool isShiftPressed = verifyModifier(s_shiftDown, VK_SHIFT);
                     if (isPopupActive) {
                         // 弹出器已显示（pinned）：直接转发循环选择——不依赖键盘焦点，
                         // 抢焦点失败（可见但非前台）时也能连续切换，且不刷新列表、不丢选择
-                        auto shiftModifier = s_shiftDown ? Qt::ShiftModifier : Qt::NoModifier;
+                        auto shiftModifier = isShiftPressed ? Qt::ShiftModifier : Qt::NoModifier;
                         QApplication::postEvent(targetWidget, new QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::AltModifier | shiftModifier));
                     } else if (Hooker::s_receiverHwnd != GetForegroundWindow()) { // not Foreground
                         // 异步，防止阻塞；超过1s会导致被系统强制绕过，传递给下一个钩子
@@ -83,14 +105,14 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                         QMetaObject::invokeMethod(targetWidget, "requestShowPinned", Qt::QueuedConnection);
                     } else {
                         // 转发Alt+Tab给Widget
-                        auto shiftModifier = s_shiftDown ? Qt::ShiftModifier : Qt::NoModifier;
+                        auto shiftModifier = isShiftPressed ? Qt::ShiftModifier : Qt::NoModifier;
                         auto tabDownEvent = new QKeyEvent(QEvent::KeyPress, Qt::Key_Tab, Qt::AltModifier | shiftModifier);
                         QApplication::postEvent(targetWidget, tabDownEvent); // async
                     }
                     return 1; // 阻止事件传递
                 } else if (pKeyBoard->vkCode == VK_OEM_3) { // ~`
                     qCDebug(lcHook) << "Alt+` detected!";
-                    auto shiftModifier = s_shiftDown ? Qt::ShiftModifier : Qt::NoModifier;
+                    auto shiftModifier = verifyModifier(s_shiftDown, VK_SHIFT) ? Qt::ShiftModifier : Qt::NoModifier;
                     auto event = new QKeyEvent(QEvent::KeyPress, Qt::Key_QuoteLeft, Qt::AltModifier | shiftModifier);
                     QApplication::postEvent(targetWidget, event); // async
                     return 1; // 阻止事件传递
@@ -102,8 +124,9 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
             const bool isForeground = (Hooker::s_receiverHwnd && fgHwnd == Hooker::s_receiverHwnd);
             const bool popupActive = Hooker::s_receiverHwnd && IsWindowVisible(Hooker::s_receiverHwnd) && !IsIconic(Hooker::s_receiverHwnd);
             if (popupActive && targetWidget) {
-                const bool ctrl = s_ctrlDown;
-                const bool winPressed = s_winDown;
+                const bool ctrl = verifyModifier(s_ctrlDown, VK_CONTROL);
+                const bool winPressed = verifyWin();
+                const bool shiftPressed = verifyModifier(s_shiftDown, VK_SHIFT);
                 int qtKey = 0;
                 if (!winPressed && isForeground) {
                     switch (pKeyBoard->vkCode) {
@@ -122,7 +145,7 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                         case 'K':      if (isForeground && !ctrl) qtKey = Qt::Key_Up; break;
                         case 'L':      if (isForeground && !ctrl) qtKey = Qt::Key_Right; break;
                         case 'W':
-                            if (isForeground && ctrl && !s_shiftDown) { // Ctrl+Shift+W 是许多软件的快捷键：放行，勿吞
+                            if (isForeground && ctrl && !shiftPressed) { // Ctrl+Shift+W 是许多软件的快捷键：放行，勿吞
                                 s_wDown = true;
                                 s_wDownAt = GetTickCount64();
                                 qtKey = Qt::Key_W;
@@ -132,7 +155,7 @@ LRESULT CALLBACK keyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
                     }
                 }
                 if (qtKey) {
-                    Qt::KeyboardModifiers mods = s_shiftDown ? Qt::ShiftModifier : Qt::NoModifier;
+                    Qt::KeyboardModifiers mods = shiftPressed ? Qt::ShiftModifier : Qt::NoModifier;
                     if (qtKey == Qt::Key_Tab)
                         mods |= Qt::AltModifier; // 无修饰键的 Tab 会被 QWidget::event 当焦点切换吞掉，带 Alt 可绕过
                     if (qtKey == Qt::Key_W)
@@ -189,7 +212,7 @@ KeyboardHooker::KeyboardHooker(QWidget* _receiver) {
         // 强制创建线程消息队列
         MSG msg;
         PeekMessageW(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
-        m_threadId = GetCurrentThreadId();
+        m_threadId.store(GetCurrentThreadId(), std::memory_order_release);
 
         // 提升钩子线程优先级为最高，保证系统按键派发零延迟
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
@@ -218,15 +241,15 @@ KeyboardHooker::KeyboardHooker(QWidget* _receiver) {
     });
 
     if (installedFuture.wait_for(std::chrono::seconds(2)) == std::future_status::ready && installedFuture.get()) {
-        qInfo() << "KeyboardHooker installed in dedicated thread ID:" << m_threadId;
+        qInfo() << "KeyboardHooker installed in dedicated thread ID:" << m_threadId.load(std::memory_order_acquire);
     } else {
         qWarning() << "Failed to install KeyboardHooker in dedicated thread!";
     }
 }
 
 KeyboardHooker::~KeyboardHooker() {
-    if (m_threadId) {
-        PostThreadMessageW(m_threadId, WM_QUIT, 0, 0);
+    if (const DWORD tid = m_threadId.load(std::memory_order_acquire); tid != 0) {
+        PostThreadMessageW(tid, WM_QUIT, 0, 0);
         if (m_thread.joinable()) {
             m_thread.join();
         }
