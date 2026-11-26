@@ -342,6 +342,7 @@ void SystemTray::setMenu(QWidget* parent) {
 }
 
 void SystemTray::applyMenuTheme() {
+    Theme::refreshSystemVisualSettings();
     applyMenuThemeTo(menu);
     applyMenuThemeTo(menu_monitor);
 }

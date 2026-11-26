@@ -175,7 +175,7 @@ namespace Theme {
     }
 
     QString menuStyleSheet() {
-        const bool dark = isDark();
+        const bool dark = isMenuDark();
         const bool transparent = isTransparencyEnabled();
         auto css = [](const QColor& c) { return c.name(QColor::HexArgb); };
 

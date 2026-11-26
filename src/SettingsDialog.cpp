@@ -172,44 +172,7 @@ void SettingsDialog::setupUi() {
     layoutMonitor->addWidget(m_monitorSeg);
     contentLayout->addWidget(cardMonitor);
 
-    // 卡片 3：外观主题（带有 macOS 原生分段选择器 MacSegmentedControl）
-    auto* cardTheme = new QFrame(m_scrollContent);
-    cardTheme->setObjectName("macCard");
-    auto* layoutTheme = new QVBoxLayout(cardTheme);
-    layoutTheme->setContentsMargins(12, 8, 12, 8);
-    layoutTheme->setSpacing(6);
-
-    auto* headerThemeRow = new QHBoxLayout();
-    headerThemeRow->setContentsMargins(0, 0, 0, 0);
-    headerThemeRow->setSpacing(10);
-
-    auto* badgeTheme = new MacCategoryBadge(MacCategoryBadge::Palette, QColor(0xFF, 0x95, 0x00), cardTheme);
-    auto* textThemeLayout = new QVBoxLayout();
-    textThemeLayout->setContentsMargins(0, 0, 0, 0);
-    textThemeLayout->setSpacing(2);
-
-    auto* lblTheme = new QLabel(QStringLiteral("界面外观主题"), cardTheme);
-    lblTheme->setObjectName("label_section");
-    auto* descTheme = new QLabel(QStringLiteral("切换器面板、托盘弹出窗口与自绘气泡主题"), cardTheme);
-    descTheme->setObjectName("label_dim");
-    descTheme->setWordWrap(true);
-
-    textThemeLayout->addWidget(lblTheme);
-    textThemeLayout->addWidget(descTheme);
-    headerThemeRow->addWidget(badgeTheme, 0, Qt::AlignVCenter);
-    headerThemeRow->addLayout(textThemeLayout, 1);
-
-    m_themeSeg = new MacSegmentedControl({
-        QStringLiteral("跟随系统 (自动)"),
-        QStringLiteral("浅色模式"),
-        QStringLiteral("深色模式")
-    }, cardTheme);
-
-    layoutTheme->addLayout(headerThemeRow);
-    layoutTheme->addWidget(m_themeSeg);
-    contentLayout->addWidget(cardTheme);
-
-    // 卡片 3.5：实时窗口缩略图预览（带有 macOS 原生分段选择器 MacSegmentedControl）
+    // 卡片 3：实时窗口缩略图预览（带有 macOS 原生分段选择器 MacSegmentedControl）
     auto* cardThumb = new QFrame(m_scrollContent);
     cardThumb->setObjectName("macCard");
     auto* layoutThumb = new QVBoxLayout(cardThumb);
@@ -245,6 +208,80 @@ void SettingsDialog::setupUi() {
     layoutThumb->addLayout(headerThumbRow);
     layoutThumb->addWidget(m_thumbnailSeg);
     contentLayout->addWidget(cardThumb);
+
+    // 卡片 4：弹出任务窗口颜色（默认深色，独立于托盘菜单主题）
+    auto* cardSwitcherTheme = new QFrame(m_scrollContent);
+    cardSwitcherTheme->setObjectName("macCard");
+    auto* layoutSwitcherTheme = new QVBoxLayout(cardSwitcherTheme);
+    layoutSwitcherTheme->setContentsMargins(12, 8, 12, 8);
+    layoutSwitcherTheme->setSpacing(6);
+
+    auto* headerSwitcherThemeRow = new QHBoxLayout();
+    headerSwitcherThemeRow->setContentsMargins(0, 0, 0, 0);
+    headerSwitcherThemeRow->setSpacing(10);
+
+    auto* badgeSwitcherTheme = new MacCategoryBadge(MacCategoryBadge::Contrast, QColor(0xAF, 0x52, 0xDE), cardSwitcherTheme);
+    auto* textSwitcherThemeLayout = new QVBoxLayout();
+    textSwitcherThemeLayout->setContentsMargins(0, 0, 0, 0);
+    textSwitcherThemeLayout->setSpacing(2);
+
+    auto* lblSwitcherTheme = new QLabel(QStringLiteral("弹出任务窗口颜色"), cardSwitcherTheme);
+    lblSwitcherTheme->setObjectName("label_section");
+    auto* descSwitcherTheme = new QLabel(QStringLiteral("Alt+Tab 切换器面板与悬浮预览窗口的外观配色（默认深色）"), cardSwitcherTheme);
+    descSwitcherTheme->setObjectName("label_dim");
+    descSwitcherTheme->setWordWrap(true);
+
+    textSwitcherThemeLayout->addWidget(lblSwitcherTheme);
+    textSwitcherThemeLayout->addWidget(descSwitcherTheme);
+    headerSwitcherThemeRow->addWidget(badgeSwitcherTheme, 0, Qt::AlignVCenter);
+    headerSwitcherThemeRow->addLayout(textSwitcherThemeLayout, 1);
+
+    m_switcherThemeSeg = new MacSegmentedControl({
+        QStringLiteral("深色 (推荐)"),
+        QStringLiteral("浅色"),
+        QStringLiteral("跟随系统")
+    }, cardSwitcherTheme);
+
+    layoutSwitcherTheme->addLayout(headerSwitcherThemeRow);
+    layoutSwitcherTheme->addWidget(m_switcherThemeSeg);
+    contentLayout->addWidget(cardSwitcherTheme);
+
+    // 卡片 5：界面外观主题（仅作用于系统托盘右键弹出窗口）
+    auto* cardTheme = new QFrame(m_scrollContent);
+    cardTheme->setObjectName("macCard");
+    auto* layoutTheme = new QVBoxLayout(cardTheme);
+    layoutTheme->setContentsMargins(12, 8, 12, 8);
+    layoutTheme->setSpacing(6);
+
+    auto* headerThemeRow = new QHBoxLayout();
+    headerThemeRow->setContentsMargins(0, 0, 0, 0);
+    headerThemeRow->setSpacing(10);
+
+    auto* badgeTheme = new MacCategoryBadge(MacCategoryBadge::Palette, QColor(0xFF, 0x95, 0x00), cardTheme);
+    auto* textThemeLayout = new QVBoxLayout();
+    textThemeLayout->setContentsMargins(0, 0, 0, 0);
+    textThemeLayout->setSpacing(2);
+
+    auto* lblTheme = new QLabel(QStringLiteral("界面外观主题"), cardTheme);
+    lblTheme->setObjectName("label_section");
+    auto* descTheme = new QLabel(QStringLiteral("仅作用于系统托盘右键弹出窗口的外观主题"), cardTheme);
+    descTheme->setObjectName("label_dim");
+    descTheme->setWordWrap(true);
+
+    textThemeLayout->addWidget(lblTheme);
+    textThemeLayout->addWidget(descTheme);
+    headerThemeRow->addWidget(badgeTheme, 0, Qt::AlignVCenter);
+    headerThemeRow->addLayout(textThemeLayout, 1);
+
+    m_themeSeg = new MacSegmentedControl({
+        QStringLiteral("跟随系统 (自动)"),
+        QStringLiteral("浅色模式"),
+        QStringLiteral("深色模式")
+    }, cardTheme);
+
+    layoutTheme->addLayout(headerThemeRow);
+    layoutTheme->addWidget(m_themeSeg);
+    contentLayout->addWidget(cardTheme);
 
     // 卡片 4：高级配置管理
     auto* cardConfig = new QFrame(m_scrollContent);
@@ -308,12 +345,14 @@ void SettingsDialog::setupUi() {
         CFG.setDisplayMonitor(index == 0 ? MouseMonitor : PrimaryMonitor);
     });
 
-    connect(m_themeSeg, &MacSegmentedControl::currentIndexChanged, this, [this](int index) {
-        const QString mode = (index == 0) ? QStringLiteral("auto")
-                           : ((index == 1) ? QStringLiteral("light") : QStringLiteral("dark"));
-        CFG.set("ThemeMode", mode);
-        Theme::applyConfiguredScheme();
-        this->applyTheme();
+    connect(m_switcherThemeSeg, &MacSegmentedControl::currentIndexChanged, this, [](int index) {
+        const ThemeMode mode = (index == 0) ? ThemeDark : ((index == 1) ? ThemeLight : ThemeAuto);
+        CFG.setSwitcherThemeMode(mode);
+    });
+
+    connect(m_themeSeg, &MacSegmentedControl::currentIndexChanged, this, [](int index) {
+        const ThemeMode mode = (index == 0) ? ThemeAuto : ((index == 1) ? ThemeLight : ThemeDark);
+        CFG.setThemeMode(mode); // 仅作用于系统托盘右键弹出窗口（自动经 configEdited 实时刷新托盘菜单）
     });
 
     connect(m_thumbnailSeg, &MacSegmentedControl::currentIndexChanged, this, [](int index) {
@@ -352,7 +391,8 @@ void SettingsDialog::adjustDialogGeometry() {
     const QRect avail = screen ? screen->availableGeometry() : QRect(0, 0, 1920, 1080);
     // 留出上下各 32px 的安全边距，避免超出屏幕边缘
     const int maxH = qMax(400, avail.height() - 64);
-    const int targetH = qBound(540, desiredH, maxH);
+    const int minH = qMin(540, maxH);
+    const int targetH = qBound(minH, desiredH, maxH);
 
     resize(500, targetH);
 }
@@ -383,11 +423,16 @@ void SettingsDialog::showEvent(QShowEvent* event) {
     {
         const QSignalBlocker b1(m_startupSwitch);
         const QSignalBlocker b2(m_monitorSeg);
-        const QSignalBlocker b3(m_themeSeg);
-        const QSignalBlocker b4(m_thumbnailSeg);
+        const QSignalBlocker b3(m_switcherThemeSeg);
+        const QSignalBlocker b4(m_themeSeg);
+        const QSignalBlocker b5(m_thumbnailSeg);
 
         m_startupSwitch->setChecked(Startup::isOn(), false);
         m_monitorSeg->setCurrentIndex(CFG.getDisplayMonitor() == MouseMonitor ? 0 : 1, false);
+
+        const auto switcherTheme = CFG.getSwitcherThemeMode();
+        const int switcherIdx = (switcherTheme == ThemeDark) ? 0 : ((switcherTheme == ThemeLight) ? 1 : 2);
+        m_switcherThemeSeg->setCurrentIndex(switcherIdx, false);
 
         const auto theme = CFG.getThemeMode();
         const int themeIdx = (theme == ThemeAuto) ? 0 : ((theme == ThemeLight) ? 1 : 2);

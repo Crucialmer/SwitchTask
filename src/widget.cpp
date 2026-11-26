@@ -353,10 +353,10 @@ void Widget::setupLabelFont() {
     connect(&CFG, &ConfigManager::configEdited, this, &Widget::reloadLabelFont);
 }
 
-/// 应用当前深浅色主题：底部标题颜色、列表选中/悬停/描边色、面板与列表重绘
+/// 应用当前弹出任务窗口颜色（默认深色）：底部标题颜色、列表选中/悬停/描边色、面板与列表重绘
 void Widget::applyTheme() {
     Theme::refreshSystemVisualSettings();
-    cachedIsDark = Theme::isDark();
+    cachedIsDark = Theme::isSwitcherDark();
     cachedTransparent = Theme::isTransparencyEnabled();
     cachedThumbMode = CFG.getThumbnailMode();
 

@@ -17,7 +17,7 @@
 /// macOS 26 风格类别图标徽标（28x28 连续曲率超椭圆方圆角，内置柔和顶部高光渐变与抗锯齿矢量符号）
 class MacCategoryBadge : public QWidget {
 public:
-    enum IconType { Rocket, Monitor, Palette, Gear, Window };
+    enum IconType { Rocket, Monitor, Palette, Gear, Window, Contrast };
 
     MacCategoryBadge(IconType type, const QColor& bgColor, QWidget* parent = nullptr)
         : QWidget(parent), m_type(type), m_bgColor(bgColor) {
@@ -85,6 +85,14 @@ protected:
             p.drawPoint(QPointF(14, 22));
             p.drawPoint(QPointF(6, 14));
             p.drawPoint(QPointF(22, 14));
+            break;
+        }
+        case Contrast: { // macOS 外观深浅对比图标（半实心圆）
+            const QRectF circle(7.0, 7.0, 14.0, 14.0);
+            p.drawEllipse(circle);
+            p.setPen(Qt::NoPen);
+            p.setBrush(Qt::white);
+            p.drawChord(circle, -90 * 16, 180 * 16);
             break;
         }
         }

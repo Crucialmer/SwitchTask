@@ -37,6 +37,7 @@ private:
     QWidget* m_bottomBar = nullptr;
     MacToggleSwitch* m_startupSwitch = nullptr;
     MacSegmentedControl* m_monitorSeg = nullptr;
+    MacSegmentedControl* m_switcherThemeSeg = nullptr;
     MacSegmentedControl* m_themeSeg = nullptr;
     MacSegmentedControl* m_thumbnailSeg = nullptr;
     QPushButton* m_editConfigBtn = nullptr;

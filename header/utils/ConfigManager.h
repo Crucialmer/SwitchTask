@@ -52,10 +52,30 @@ public:
         set("DisplayMonitor", monitor);
     }
 
-    /// 深浅色模式：`ThemeMode = auto / light / dark`（也可写 0/1/2；非法值回退 auto 并告警）
+    /// 托盘右键弹出窗口主题：`ThemeMode = auto / light / dark`（也可写 0/1/2；非法值回退 auto 并告警）
     ThemeMode getThemeMode() {
         ensureCache();
         return m_cachedTheme;
+    }
+
+    void setThemeMode(ThemeMode mode) {
+        QString val = QStringLiteral("auto");
+        if (mode == ThemeLight) val = QStringLiteral("light");
+        else if (mode == ThemeDark) val = QStringLiteral("dark");
+        set("ThemeMode", val);
+    }
+
+    /// 弹出任务窗口颜色：`SwitcherThemeMode = dark / light / auto`（默认深色 dark）
+    ThemeMode getSwitcherThemeMode() {
+        ensureCache();
+        return m_cachedSwitcherTheme;
+    }
+
+    void setSwitcherThemeMode(ThemeMode mode) {
+        QString val = QStringLiteral("dark");
+        if (mode == ThemeLight) val = QStringLiteral("light");
+        else if (mode == ThemeAuto) val = QStringLiteral("auto");
+        set("SwitcherThemeMode", val);
     }
 
     /// 实时缩略图模式：`thumbnail/mode = integrated / popup / disabled`（以方案2舞台集成为默认设置）
@@ -101,6 +121,17 @@ private:
             m_cachedTheme = ThemeAuto;
         }
 
+        const auto switcherThemeRaw = get("SwitcherThemeMode", QStringLiteral("dark")).toString().trimmed().toLower();
+        if (switcherThemeRaw == "light" || switcherThemeRaw == "1")
+            m_cachedSwitcherTheme = ThemeLight;
+        else if (switcherThemeRaw == "auto" || switcherThemeRaw == "0")
+            m_cachedSwitcherTheme = ThemeAuto;
+        else {
+            if (!(switcherThemeRaw == "dark" || switcherThemeRaw == "2" || switcherThemeRaw.isEmpty()))
+                qWarning() << "Invalid SwitcherThemeMode (expect dark/light/auto), fallback to dark:" << switcherThemeRaw;
+            m_cachedSwitcherTheme = ThemeDark;
+        }
+
         const auto thumbRaw = get("thumbnail/mode", QStringLiteral("integrated")).toString().trimmed().toLower();
         if (thumbRaw == "popup" || thumbRaw == "floating" || thumbRaw == "1")
             m_cachedThumbMode = ThumbnailPopup;
@@ -116,6 +147,7 @@ private:
     bool m_cacheValid = false;
     DisplayMonitor m_cachedMonitor = DisplayMonitor::MouseMonitor;
     ThemeMode m_cachedTheme = ThemeAuto;
+    ThemeMode m_cachedSwitcherTheme = ThemeDark;
     ThumbnailMode m_cachedThumbMode = ThumbnailIntegrated;
 };
 

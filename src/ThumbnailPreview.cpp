@@ -54,7 +54,7 @@ ThumbnailPopupWidget::~ThumbnailPopupWidget() {
 }
 
 void ThumbnailPopupWidget::applyTheme() {
-    m_isDark = Theme::isDark();
+    m_isDark = Theme::isSwitcherDark();
     m_transparent = Theme::isTransparencyEnabled();
     if (HWND hwnd = hWnd()) {
         setWindowBlur(hwnd);
